@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -122,11 +123,28 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	controllerutil.AddFinalizer(netResource, k8sutil.Finalizer("networkresource"))
 
+	// Resolve the DNS zone up front: the network resource is created as a
+	// *domain* target (the FQDN below) so a single resource covers both address
+	// families, with an A record per IPv4 ClusterIP and an AAAA per IPv6.
+	zone, err := netbirdutil.GetDNSZoneByName(ctx, r.Netbird, netRouter.Spec.DNSZoneRef.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// Build the FQDN from the zone's Domain (the actual FQDN), not its Name
+	// (a label identifier). Records must sit within the zone's domain, and the
+	// resource address must be a resolvable name.
+	fqdn := strings.Join([]string{svc.Name, svc.Namespace, zone.Domain}, ".")
+
+	// Reconcile the A/AAAA records before the resource so the domain resolves.
+	if err := r.reconcileDNSRecords(ctx, sp, netResource, zone, fqdn, clusterIPsOf(svc)); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	resourceID, err := func() (string, error) {
 		netReq := api.NetworkResourceRequest{
 			Name:        string(netResource.UID),
 			Description: new(svc.Name + "/" + svc.Namespace),
-			Address:     svc.Spec.ClusterIP,
+			Address:     fqdn,
 			Enabled:     true,
 			Groups:      groupIDs,
 		}
@@ -150,54 +168,6 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	netResource.Status.NetworkID = netRouter.Status.NetworkID
 	netResource.Status.ResourceID = resourceID
-	err = sp.Patch(ctx, netResource)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Create DNS records for resource.
-	zone, err := netbirdutil.GetDNSZoneByName(ctx, r.Netbird, netRouter.Spec.DNSZoneRef.Name)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// If zone has changed we need to delete the old records.
-	if netResource.Status.DNSZoneID != "" && netResource.Status.DNSZoneID != zone.Id {
-		err = r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID)
-		if err != nil && !netbird.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-		netResource.Status.DNSZoneID = ""
-		netResource.Status.DNSRecordID = ""
-	}
-
-	recordID, err := func() (string, error) {
-		dnsReq := api.DNSRecordRequest{
-			Content: svc.Spec.ClusterIP,
-			Name:    strings.Join([]string{svc.Name, svc.Namespace, zone.Name}, "."),
-			Ttl:     int(5 * time.Minute / time.Second),
-			Type:    api.DNSRecordTypeA,
-		}
-		if netResource.Status.DNSZoneID != "" && netResource.Status.DNSRecordID != "" {
-			recordResp, err := r.Netbird.DNSZones.UpdateRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID, dnsReq)
-			if err != nil && !netbird.IsNotFound(err) {
-				return "", err
-			}
-			if err == nil {
-				return recordResp.Id, nil
-			}
-		}
-		recordResp, err := r.Netbird.DNSZones.CreateRecord(ctx, zone.Id, dnsReq)
-		if err != nil {
-			return "", err
-		}
-		return recordResp.Id, nil
-	}()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	netResource.Status.DNSZoneID = zone.Id
-	netResource.Status.DNSRecordID = recordID
 
 	conditions.MarkTrue(netResource, nbv1alpha1.ReadyCondition, nbv1alpha1.ReconciledReason, "")
 	err = sp.Patch(ctx, netResource, patch.WithStatusObservedGeneration{})
@@ -207,6 +177,102 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
+// clusterIPsOf returns the Service's dualstack ClusterIPs, falling back to the
+// single ClusterIP for older API objects.
+func clusterIPsOf(svc *corev1.Service) []string {
+	if len(svc.Spec.ClusterIPs) > 0 {
+		return svc.Spec.ClusterIPs
+	}
+	return []string{svc.Spec.ClusterIP}
+}
+
+// reconcileDNSRecords ensures the zone holds exactly one A record per IPv4 and
+// one AAAA per IPv6 ClusterIP at fqdn, reconciling against the records tracked
+// in status (create missing, delete stale) so unchanged reconciles are no-ops.
+func (r *NetworkResourceReconciler) reconcileDNSRecords(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource, zone api.Zone, fqdn string, clusterIPs []string) error {
+	type desiredRecord struct {
+		rType   api.DNSRecordType
+		content string
+	}
+	var desired []desiredRecord
+	for _, ip := range clusterIPs {
+		parsed := net.ParseIP(ip)
+		if parsed == nil {
+			continue
+		}
+		if parsed.To4() != nil {
+			desired = append(desired, desiredRecord{api.DNSRecordTypeA, ip})
+		} else {
+			desired = append(desired, desiredRecord{api.DNSRecordTypeAAAA, ip})
+		}
+	}
+
+	// On a zone change, drop everything tracked in the old zone first.
+	if netResource.Status.DNSZoneID != "" && netResource.Status.DNSZoneID != zone.Id {
+		for _, rec := range netResource.Status.DNSRecords {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, rec.ID); err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+		}
+		if netResource.Status.DNSRecordID != "" {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+		}
+		netResource.Status.DNSRecords = nil
+		netResource.Status.DNSRecordID = ""
+		netResource.Status.DNSZoneID = ""
+	}
+
+	// Clean up the legacy single A record (pre-dualstack) now that records are
+	// managed as a set.
+	if netResource.Status.DNSRecordID != "" {
+		if err := r.Netbird.DNSZones.DeleteRecord(ctx, zone.Id, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
+			return err
+		}
+		netResource.Status.DNSRecordID = ""
+	}
+
+	existing := map[string]nbv1alpha1.DNSRecordStatus{}
+	for _, rec := range netResource.Status.DNSRecords {
+		existing[rec.Type+"|"+rec.Content] = rec
+	}
+
+	kept := []nbv1alpha1.DNSRecordStatus{}
+	desiredKeys := map[string]bool{}
+	for _, d := range desired {
+		key := string(d.rType) + "|" + d.content
+		desiredKeys[key] = true
+		if cur, ok := existing[key]; ok {
+			kept = append(kept, cur)
+			continue
+		}
+		resp, err := r.Netbird.DNSZones.CreateRecord(ctx, zone.Id, api.DNSRecordRequest{
+			Content: d.content,
+			Name:    fqdn,
+			Ttl:     int(5 * time.Minute / time.Second),
+			Type:    d.rType,
+		})
+		if err != nil {
+			return err
+		}
+		kept = append(kept, nbv1alpha1.DNSRecordStatus{Type: string(d.rType), Content: d.content, ID: resp.Id})
+	}
+
+	// Delete records that are no longer desired.
+	for key, rec := range existing {
+		if !desiredKeys[key] {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, zone.Id, rec.ID); err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+		}
+	}
+
+	netResource.Status.DNSZoneID = zone.Id
+	netResource.Status.DNSRecords = kept
+	return sp.Patch(ctx, netResource)
+}
+
 func (r *NetworkResourceReconciler) reconcileDelete(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource) (ctrl.Result, error) {
 	if netResource.Status.NetworkID != "" && netResource.Status.ResourceID != "" {
 		err := r.Netbird.Networks.Resources(netResource.Status.NetworkID).Delete(ctx, netResource.Status.ResourceID)
@@ -214,10 +280,16 @@ func (r *NetworkResourceReconciler) reconcileDelete(ctx context.Context, sp *pat
 			return ctrl.Result{}, err
 		}
 	}
-	if netResource.Status.DNSZoneID != "" && netResource.Status.DNSRecordID != "" {
-		err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID)
-		if err != nil && !netbird.IsNotFound(err) {
-			return ctrl.Result{}, err
+	if netResource.Status.DNSZoneID != "" {
+		for _, rec := range netResource.Status.DNSRecords {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, rec.ID); err != nil && !netbird.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		}
+		if netResource.Status.DNSRecordID != "" {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 

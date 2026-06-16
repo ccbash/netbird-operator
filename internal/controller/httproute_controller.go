@@ -150,12 +150,15 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 						"service", svc.Name, "port", svc.Spec.Ports[0].Port)
 				}
 				targets = append(targets, api.ServiceTarget{
-					Enabled:    true,
-					Path:       path,
-					Port:       backendPortFor(svc, refPort),
-					TargetId:   resourceID[svc.Name],
-					Protocol:   api.ServiceTargetProtocolHttp,
-					TargetType: api.ServiceTargetTargetTypeHost,
+					Enabled:  true,
+					Path:     path,
+					Port:     backendPortFor(svc, refPort),
+					TargetId: resourceID[svc.Name],
+					Protocol: api.ServiceTargetProtocolHttp,
+					// The NetworkResource is a domain resource (its address is the
+					// service FQDN), so the proxy target type must be "domain" —
+					// NetBird rejects a "host" target pointing at a domain resource.
+					TargetType: api.ServiceTargetTargetTypeDomain,
 				})
 			}
 		}
