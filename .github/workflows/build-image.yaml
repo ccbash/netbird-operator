@@ -92,19 +92,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and push Helm chart
-        # Publish a dev chart so the test build ships its (possibly changed)
-        # CRDs, instead of relying on a released chart's CRDs. Version is a
-        # plain, monotonically increasing 0.0.<run_number> on a dedicated dev
-        # line — so Flux can order it and a HelmRelease pinned to "0.0.x"
-        # always picks the newest dev build (released charts are 0.8.x).
+        # Publish a per-branch dev chart so each development stream is isolated
+        # and ships its own (possibly changed) CRDs. The branch lives in the
+        # chart NAME (netbird-operator-<branch>) — not the version, because Helm
+        # versions must be semver and Flux can't select "latest prerelease of a
+        # branch". The version is a plain, monotonically increasing
+        # 0.0.<run_number> so Flux orders it; a HelmRelease pinned to
+        # chart: netbird-operator-<branch> + version "0.0.x" tracks that branch.
         run: |
           owner="${{ github.repository_owner }}"
-          chart_version="{{ steps.tags.outputs.ref_tag }}.${{ github.run_number }}"
+          chart_name="netbird-operator-${{ steps.tags.outputs.ref_tag }}"
+          chart_version="0.0.${{ github.run_number }}"
+          sed -i "s/^name: .*/name: ${chart_name}/" charts/netbird-operator/Chart.yaml
           helm package --app-version "${{ steps.tags.outputs.sha_tag }}" --version "${chart_version}" charts/netbird-operator
-          helm push "netbird-operator-${chart_version}.tgz" "oci://ghcr.io/${owner}/helm-charts"
+          helm push "${chart_name}-${chart_version}.tgz" "oci://ghcr.io/${owner}/helm-charts"
           {
             echo "### Pushed chart"
             echo '```'
-            echo "oci://ghcr.io/${owner}/helm-charts/netbird-operator:${chart_version}"
+            echo "oci://ghcr.io/${owner}/helm-charts/${chart_name}:${chart_version}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
