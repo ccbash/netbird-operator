@@ -147,12 +147,7 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// RoutingMode selects how the resource is addressed: a host resource at the
 	// ClusterIP (ip, the default) or a domain resource at the FQDN (domain).
-	address := svc.Spec.ClusterIP
-	desiredType := api.NetworkResourceTypeHost
-	if netResource.Spec.RoutingMode == nbv1alpha1.RoutingModeDomain {
-		address = fqdn
-		desiredType = api.NetworkResourceTypeDomain
-	}
+	address, desiredType := resourceAddressFor(svc, fqdn, netResource.Spec.RoutingMode)
 
 	resourceID, err := func() (string, error) {
 		netReq := api.NetworkResourceRequest{
@@ -210,6 +205,29 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
+// resourceAddressFor returns the NetworkResource address and type for a Service
+// under the given routing mode: a host resource at the ClusterIP (ip, the
+// default) or a domain resource at the FQDN (domain).
+func resourceAddressFor(svc *corev1.Service, fqdn string, mode nbv1alpha1.RoutingMode) (string, api.NetworkResourceType) {
+	if mode == nbv1alpha1.RoutingModeDomain {
+		return fqdn, api.NetworkResourceTypeDomain
+	}
+	return svc.Spec.ClusterIP, api.NetworkResourceTypeHost
+}
+
+// dnsRecordTypeFor classifies an IP string as an A (IPv4) or AAAA (IPv6) record.
+// ok is false when the string is not a valid IP and should be skipped.
+func dnsRecordTypeFor(ip string) (api.DNSRecordType, bool) {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return "", false
+	}
+	if parsed.To4() != nil {
+		return api.DNSRecordTypeA, true
+	}
+	return api.DNSRecordTypeAAAA, true
+}
+
 // clusterIPsOf returns the Service's dualstack ClusterIPs, falling back to the
 // single ClusterIP for older API objects.
 func clusterIPsOf(svc *corev1.Service) []string {
@@ -246,15 +264,11 @@ func (r *NetworkResourceReconciler) reconcileDNSRecords(ctx context.Context, sp 
 	}
 	var desired []desiredRecord
 	for _, ip := range clusterIPs {
-		parsed := net.ParseIP(ip)
-		if parsed == nil {
+		rType, ok := dnsRecordTypeFor(ip)
+		if !ok {
 			continue
 		}
-		if parsed.To4() != nil {
-			desired = append(desired, desiredRecord{api.DNSRecordTypeA, ip})
-		} else {
-			desired = append(desired, desiredRecord{api.DNSRecordTypeAAAA, ip})
-		}
+		desired = append(desired, desiredRecord{rType, ip})
 	}
 
 	// On a zone change, drop records tracked in the old zone first.
