@@ -43,6 +43,7 @@ func (r *SetupKeyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	ctrl.LoggerFrom(ctx).Info("reconciling setup key")
 	owner, err := k8sutil.ControllerReference(setupKey, r.Client.Scheme())
 	if err != nil {
 		return ctrl.Result{}, err

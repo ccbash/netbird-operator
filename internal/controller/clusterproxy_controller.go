@@ -44,6 +44,7 @@ func (r *ClusterProxyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	ctrl.LoggerFrom(ctx).Info("reconciling cluster proxy")
 	sp := patch.NewSerialPatcher(clusterProxy, r.Client)
 
 	if !clusterProxy.DeletionTimestamp.IsZero() {

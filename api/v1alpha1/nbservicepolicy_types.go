@@ -75,10 +75,12 @@ type NBServicePolicySpec struct {
 	// +optional
 	Private *bool `json:"private,omitempty"`
 
-	// AccessGroups are the NetBird group IDs whose peers may reach a private
-	// service over the tunnel. Required when Private is true; ignored otherwise.
+	// AccessGroups are the NetBird groups whose peers may reach a private
+	// service over the tunnel, referenced by name, id or local Group reference
+	// and resolved the same way as NetworkRouter.resourceGroups. Required when
+	// Private is true; ignored otherwise.
 	// +optional
-	AccessGroups []string `json:"accessGroups,omitempty"`
+	AccessGroups []GroupReference `json:"accessGroups,omitempty"`
 
 	// CrowdsecMode sets the CrowdSec IP-reputation handling for the service.
 	// +optional

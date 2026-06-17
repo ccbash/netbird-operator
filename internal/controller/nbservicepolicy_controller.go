@@ -42,6 +42,7 @@ func (r *NBServicePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := r.Get(ctx, req.NamespacedName, policy); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	logger.Info("reconciling service policy")
 	if !policy.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
@@ -72,7 +73,7 @@ func (r *NBServicePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // existing HTTPRoute in the policy's namespace.
 func (r *NBServicePolicyReconciler) hasResolvableTarget(ctx context.Context, policy *nbv1alpha1.NBServicePolicy) (bool, error) {
 	for _, t := range policy.Spec.TargetRefs {
-		if string(t.Group) != gatewayAPIGroup || string(t.Kind) != "HTTPRoute" {
+		if string(t.Group) != gatewayAPIGroup || string(t.Kind) != httpRouteKind {
 			continue
 		}
 		hr := &gwv1.HTTPRoute{}
@@ -101,7 +102,7 @@ func (r *NBServicePolicyReconciler) conflictingPolicy(ctx context.Context, polic
 			continue
 		}
 		for _, t := range policy.Spec.TargetRefs {
-			if string(t.Kind) == "HTTPRoute" && policyTargetsRoute(other, string(t.Name)) {
+			if string(t.Kind) == httpRouteKind && policyTargetsRoute(other, string(t.Name)) {
 				return other.Name, nil
 			}
 		}

@@ -11,17 +11,6 @@ plugins:
 projectName: kubernetes-operator
 repo: github.com/netbirdio/kubernetes-operator
 resources:
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: netbird.io
-  kind: NBSetupKey
-  path: github.com/netbirdio/kubernetes-operator/api/v1
-  version: v1
-  webhooks:
-    validation: true
-    webhookVersion: v1
 - external: true
   kind: Pod
   path: k8s.io/api/core/v1
@@ -29,52 +18,6 @@ resources:
   webhooks:
     defaulting: true
     webhookVersion: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: netbird.io
-  kind: NBRoutingPeer
-  path: github.com/netbirdio/kubernetes-operator/api/v1
-  version: v1
-  webhooks:
-    validation: true
-    webhookVersion: v1
-- controller: true
-  external: true
-  kind: Service
-  path: k8s.io/api/core/v1
-  version: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: netbird.io
-  kind: NBResource
-  path: github.com/netbirdio/kubernetes-operator/api/v1
-  version: v1
-  webhooks:
-    validation: true
-    webhookVersion: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: netbird.io
-  kind: NBGroup
-  path: github.com/netbirdio/kubernetes-operator/api/v1
-  version: v1
-  webhooks:
-    validation: true
-    webhookVersion: v1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: netbird.io
-  kind: NBPolicy
-  path: github.com/netbirdio/kubernetes-operator/api/v1
-  version: v1
 - api:
     crdVersion: v1
     namespaced: true

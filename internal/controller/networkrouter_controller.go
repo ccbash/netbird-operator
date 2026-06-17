@@ -50,13 +50,13 @@ type NetworkRouterReconciler struct {
 // +kubebuilder:rbac:groups=netbird.io,resources=networkrouters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=netbird.io,resources=networkrouters/finalizers,verbs=update
 
-// nolint:gocyclo
 func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	netRouter := &nbv1alpha1.NetworkRouter{}
 	err := r.Get(ctx, req.NamespacedName, netRouter)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	ctrl.LoggerFrom(ctx).Info("reconciling network router")
 	sp := patch.NewSerialPatcher(netRouter, r.Client)
 
 	if !netRouter.DeletionTimestamp.IsZero() {
@@ -76,25 +76,7 @@ func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	controllerutil.AddFinalizer(netRouter, k8sutil.Finalizer("networkrouter"))
 
-	networkID, err := func() (string, error) {
-		networkReq := api.NetworkRequest{
-			Name: netRouter.Name,
-		}
-		if netRouter.Status.NetworkID != "" {
-			networkResp, err := r.Netbird.Networks.Update(ctx, netRouter.Status.NetworkID, networkReq)
-			if err != nil && !netbird.IsNotFound(err) {
-				return "", err
-			}
-			if err == nil {
-				return networkResp.Id, nil
-			}
-		}
-		networkResp, err := r.Netbird.Networks.Create(ctx, networkReq)
-		if err != nil {
-			return "", err
-		}
-		return networkResp.Id, nil
-	}()
+	networkID, err := r.upsertNetwork(ctx, netRouter)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -161,28 +143,7 @@ func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Create the routing peer in netbird.
-	routingPeerID, err := func() (string, error) {
-		routerReq := api.NetworkRouterRequest{
-			Enabled:    true,
-			Masquerade: true,
-			Metric:     9999,
-			PeerGroups: new([]string{group.Status.GroupID}),
-		}
-		if netRouter.Status.RoutingPeerID != "" {
-			resp, err := r.Netbird.Networks.Routers(networkID).Update(ctx, netRouter.Status.RoutingPeerID, routerReq)
-			if err != nil && !netbird.IsNotFound(err) {
-				return "", err
-			}
-			if err == nil {
-				return resp.Id, nil
-			}
-		}
-		resp, err := r.Netbird.Networks.Routers(networkID).Create(ctx, routerReq)
-		if err != nil {
-			return "", err
-		}
-		return resp.Id, nil
-	}()
+	routingPeerID, err := r.upsertRoutingPeer(ctx, networkID, netRouter.Status.RoutingPeerID, group.Status.GroupID)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -305,39 +266,10 @@ func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			),
 		)
 
-	workloadLabels := map[string]string{}
-	workloadAnnotations := map[string]string{}
-	replicas := int32(3)
-	if netRouter.Spec.WorkloadOverride != nil {
-		if netRouter.Spec.WorkloadOverride.Labels != nil {
-			workloadLabels = netRouter.Spec.WorkloadOverride.Labels
-		}
-		if netRouter.Spec.WorkloadOverride.Annotations != nil {
-			workloadAnnotations = netRouter.Spec.WorkloadOverride.Annotations
-		}
-		if netRouter.Spec.WorkloadOverride.Replicas != nil {
-			replicas = *netRouter.Spec.WorkloadOverride.Replicas
-		}
-		if netRouter.Spec.WorkloadOverride.PodTemplate != nil {
-			baseJSON, err := json.Marshal(&podTemplateSpecAC)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			overrideJSON, err := json.Marshal(netRouter.Spec.WorkloadOverride.PodTemplate)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			mergedJSON, err := strategicpatch.StrategicMergePatch(baseJSON, overrideJSON, corev1.PodTemplateSpec{})
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			err = json.Unmarshal(mergedJSON, &podTemplateSpecAC)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		}
+	replicas, workloadLabels, workloadAnnotations, err := r.resolveWorkload(netRouter, podTemplateSpecAC, selectorLabels)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	maps.Copy(workloadLabels, selectorLabels)
 
 	depAC := appsv1ac.Deployment(fmt.Sprintf("networkrouter-%s", req.Name), req.Namespace).
 		WithOwnerReferences(ownerRef).
@@ -399,6 +331,110 @@ func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{RequeueAfter: 15 * time.Minute}, nil
 }
 
+// resolveWorkload applies the router's WorkloadOverride: it merges any
+// PodTemplate override into podTemplateSpecAC in place and returns the resolved
+// replica count and the workload labels/annotations (with selectorLabels folded
+// into the labels).
+func (r *NetworkRouterReconciler) resolveWorkload(netRouter *nbv1alpha1.NetworkRouter, podTemplateSpecAC *corev1ac.PodTemplateSpecApplyConfiguration, selectorLabels map[string]string) (int32, map[string]string, map[string]string, error) {
+	workloadLabels := map[string]string{}
+	workloadAnnotations := map[string]string{}
+	replicas := int32(3)
+	if o := netRouter.Spec.WorkloadOverride; o != nil {
+		if o.Labels != nil {
+			workloadLabels = o.Labels
+		}
+		if o.Annotations != nil {
+			workloadAnnotations = o.Annotations
+		}
+		if o.Replicas != nil {
+			replicas = *o.Replicas
+		}
+		if o.PodTemplate != nil {
+			if err := mergePodTemplateOverride(podTemplateSpecAC, o.PodTemplate); err != nil {
+				return 0, nil, nil, err
+			}
+		}
+	}
+	maps.Copy(workloadLabels, selectorLabels)
+	return replicas, workloadLabels, workloadAnnotations, nil
+}
+
+// mergePodTemplateOverride strategic-merges override onto dst (the generated pod
+// template) in place.
+func mergePodTemplateOverride(dst *corev1ac.PodTemplateSpecApplyConfiguration, override any) error {
+	baseJSON, err := json.Marshal(dst)
+	if err != nil {
+		return err
+	}
+	overrideJSON, err := json.Marshal(override)
+	if err != nil {
+		return err
+	}
+	mergedJSON, err := strategicpatch.StrategicMergePatch(baseJSON, overrideJSON, corev1.PodTemplateSpec{})
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(mergedJSON, dst)
+}
+
+// upsertNetwork creates or updates the NetBird network backing the router,
+// returning its ID.
+func (r *NetworkRouterReconciler) upsertNetwork(ctx context.Context, netRouter *nbv1alpha1.NetworkRouter) (string, error) {
+	networkReq := api.NetworkRequest{
+		Name: netRouter.Name,
+	}
+	if netRouter.Status.NetworkID != "" {
+		_, err := r.Netbird.Networks.Get(ctx, netRouter.Status.NetworkID)
+		switch {
+		case err == nil:
+			networkResp, err := r.Netbird.Networks.Update(ctx, netRouter.Status.NetworkID, networkReq)
+			if err != nil {
+				return "", err
+			}
+			return networkResp.Id, nil
+		case !netbird.IsNotFound(err):
+			return "", err
+		}
+		// Not found (deleted out of band) — fall through to create.
+	}
+	networkResp, err := r.Netbird.Networks.Create(ctx, networkReq)
+	if err != nil {
+		return "", err
+	}
+	return networkResp.Id, nil
+}
+
+// upsertRoutingPeer creates or updates the network's routing peer (bound to the
+// router's peer group), returning its ID.
+func (r *NetworkRouterReconciler) upsertRoutingPeer(ctx context.Context, networkID, existingID, groupID string) (string, error) {
+	routerReq := api.NetworkRouterRequest{
+		Enabled:    true,
+		Masquerade: true,
+		Metric:     9999,
+		PeerGroups: new([]string{groupID}),
+	}
+	routers := r.Netbird.Networks.Routers(networkID)
+	if existingID != "" {
+		_, err := routers.Get(ctx, existingID)
+		switch {
+		case err == nil:
+			resp, err := routers.Update(ctx, existingID, routerReq)
+			if err != nil {
+				return "", err
+			}
+			return resp.Id, nil
+		case !netbird.IsNotFound(err):
+			return "", err
+		}
+		// Not found (deleted out of band) — fall through to create.
+	}
+	resp, err := routers.Create(ctx, routerReq)
+	if err != nil {
+		return "", err
+	}
+	return resp.Id, nil
+}
+
 // reconcileServiceCIDRs ensures one NetBird subnet resource exists per
 // spec.ServiceCIDRs entry in the router's network, creating new ones, keeping
 // existing ones, and deleting resources for CIDRs that were removed. The
@@ -429,15 +465,18 @@ func (r *NetworkRouterReconciler) reconcileServiceCIDRs(ctx context.Context, sp 
 			Groups:      groupIDs,
 		}
 		if id, ok := existing[cidr]; ok {
-			_, err := r.Netbird.Networks.Resources(networkID).Update(ctx, id, req)
-			if err != nil && !netbird.IsNotFound(err) {
-				return err
-			}
-			if err == nil {
+			_, err := r.Netbird.Networks.Resources(networkID).Get(ctx, id)
+			switch {
+			case err == nil:
+				if _, err := r.Netbird.Networks.Resources(networkID).Update(ctx, id, req); err != nil {
+					return err
+				}
 				kept = append(kept, nbv1alpha1.ServiceCIDRResource{CIDR: cidr, ResourceID: id})
 				continue
+			case !netbird.IsNotFound(err):
+				return err
 			}
-			// tracked resource is gone — fall through and recreate it
+			// Tracked resource is gone (deleted out of band) — fall through and recreate it.
 		}
 		resp, err := r.Netbird.Networks.Resources(networkID).Create(ctx, req)
 		if err != nil {

@@ -33,20 +33,23 @@ func (r *GatewayClassReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	sp := patch.NewSerialPatcher(gwc, r.Client)
 
-	// Controller name does not match.
+	// Controller name does not match — not ours, nothing to do.
 	if gwc.Spec.ControllerName != GatewayControllerName {
 		return ctrl.Result{}, nil
 	}
 
-	// Gateway class is being deleted.
+	// Gateway class is being deleted (the delete path polls for referencing
+	// Gateways; don't log on every requeue).
 	if !gwc.GetDeletionTimestamp().IsZero() {
 		return r.reconcileDelete(ctx, sp, gwc)
 	}
 
+	ctrl.LoggerFrom(ctx).Info("reconciling gateway class")
+
 	// Validate configuration.
 	message := func() string {
-		if gwc.Name != "netbird-public" && gwc.Name != "netbird-private" {
-			return "GatewayClass name must be netbird-public or netbird-private."
+		if gwc.Name != "netbird" {
+			return "GatewayClass name must be netbird."
 		}
 		if gwc.Spec.ParametersRef != nil {
 			return "Parameters references is not supported."

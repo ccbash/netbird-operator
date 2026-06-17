@@ -8,32 +8,6 @@ rules:
 - apiGroups:
   - netbird.io
   resources:
-  - nbsetupkeys
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - netbird.io
-  resources:
-  - nbsetupkeys/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - netbird.io
-  resources:
-  - nbsetupkeys/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - netbird.io
-  resources:
-  - nbgroups
-  - nbresources
-  - nbroutingpeers
-  - nbpolicies
   - setupkeys
   - groups
   - networkrouters
@@ -67,10 +41,6 @@ rules:
 - apiGroups:
   - netbird.io
   resources:
-  - nbgroups/status
-  - nbresources/status
-  - nbroutingpeers/status
-  - nbpolicies/status
   - setupkeys/status
   - groups/status
   - networkrouters/status
@@ -84,10 +54,6 @@ rules:
 - apiGroups:
   - netbird.io
   resources:
-  - nbgroups/finalizers
-  - nbresources/finalizers
-  - nbroutingpeers/finalizers
-  - nbpolicies/finalizers
   - setupkeys/finalizers
   - groups/finalizers
   - networkrouters/finalizers

@@ -13,28 +13,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	nbv1 "github.com/netbirdio/kubernetes-operator/api/v1"
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 	"github.com/netbirdio/kubernetes-operator/internal/controller"
 )
 
-const (
-	SidecarProfileAnnotation = "netbird.io/sidecar-profile"
-
-	setupKeyAnnotation = "netbird.io/setup-key"
-	sidecarAnnotation  = "netbird.io/init-sidecar"
-)
-
-// nolint:unused
-// log is for logging in this package.
-var podlog = logf.Log.WithName("pod-resource")
+const SidecarProfileAnnotation = "netbird.io/sidecar-profile"
 
 // SetupPodWebhookWithManager registers the webhook for Pod in the manager.
 func SetupPodWebhookWithManager(mgr ctrl.Manager, managementURL, clientImage string) error {
@@ -58,11 +46,6 @@ type PodNetbirdInjector struct {
 var _ admission.Defaulter[*corev1.Pod] = &PodNetbirdInjector{}
 
 func (d *PodNetbirdInjector) Default(ctx context.Context, pod *corev1.Pod) error {
-	// If setup key annotations are set we do the legacy injection.
-	if pod.Annotations != nil && pod.Annotations[setupKeyAnnotation] != "" {
-		return d.legacyInjector(ctx, pod)
-	}
-
 	// Find sidecar profiles matching pods labels.
 	sidecarProfileList := &nbv1alpha1.SidecarProfileList{}
 	err := d.client.List(ctx, sidecarProfileList, client.InNamespace(pod.Namespace))
@@ -177,82 +160,5 @@ func (d *PodNetbirdInjector) Default(ctx context.Context, pod *corev1.Pod) error
 	}
 	pod.Annotations[SidecarProfileAnnotation] = sidecarProfile.Name
 
-	return nil
-}
-
-func (d *PodNetbirdInjector) legacyInjector(ctx context.Context, pod *corev1.Pod) error {
-	podlog.Info("Defaulting for Pod", "name", pod.GetName())
-
-	// retrieve the NBSetupKey resource
-	var nbSetupKey nbv1.NBSetupKey
-	err := d.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Annotations[setupKeyAnnotation]}, &nbSetupKey)
-	if err != nil {
-		return err
-	}
-
-	// ensure the NBSetupKey is ready.
-	ready := false
-	for _, c := range nbSetupKey.Status.Conditions {
-		if c.Type == nbv1.NBSetupKeyReady {
-			ready = c.Status == corev1.ConditionTrue
-		}
-	}
-	if !ready {
-		return fmt.Errorf("NBSetupKey is not ready")
-	}
-
-	managementURL := d.managementURL
-	if nbSetupKey.Spec.ManagementURL != "" {
-		managementURL = nbSetupKey.Spec.ManagementURL
-	}
-
-	// build environment variables
-	envVars := []corev1.EnvVar{
-		{
-			Name: "NB_SETUP_KEY",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &nbSetupKey.Spec.SecretKeyRef,
-			},
-		},
-		{
-			Name:  "NB_MANAGEMENT_URL",
-			Value: managementURL,
-		},
-	}
-
-	// check for extra DNS labels in annotations and add as environment variable
-	if pod.Annotations != nil {
-		if extra, ok := pod.Annotations["netbird.io/extra-dns-labels"]; ok && extra != "" {
-			podlog.Info("Found extra DNS labels", "extra", extra)
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  "NB_EXTRA_DNS_LABELS",
-				Value: extra,
-			})
-		}
-	}
-
-	// Build the netbird container spec.
-	nbContainer := corev1.Container{
-		Name:  "netbird",
-		Image: d.clientImage,
-		Env:   envVars,
-		SecurityContext: &corev1.SecurityContext{
-			Capabilities: &corev1.Capabilities{
-				Add: []corev1.Capability{"NET_ADMIN"},
-			},
-		},
-		VolumeMounts: nbSetupKey.Spec.VolumeMounts,
-	}
-
-	// If sidecar mode is requested, inject as a sidecar (init container with restartPolicy: Always).
-	if pod.Annotations[sidecarAnnotation] == "true" {
-		restartPolicy := corev1.ContainerRestartPolicyAlways
-		nbContainer.RestartPolicy = &restartPolicy
-		pod.Spec.InitContainers = append(pod.Spec.InitContainers, nbContainer)
-	} else {
-		pod.Spec.Containers = append(pod.Spec.Containers, nbContainer)
-	}
-
-	pod.Spec.Volumes = append(pod.Spec.Volumes, nbSetupKey.Spec.Volumes...)
 	return nil
 }

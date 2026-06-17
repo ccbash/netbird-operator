@@ -51,47 +51,6 @@ webhooks:
     resources:
     - pods
   sideEffects: None
-{{- if and $.Values.ingress.enabled .Values.netbirdAPI.keyFromSecret }}
----
-apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingWebhookConfiguration
-metadata:
-{{- if $.Values.webhook.enableCertManager }}
-  annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ template "netbird-operator.fullname" . }}-serving-cert
-{{- end }}
-  name: {{ include "netbird-operator.fullname" . }}-vnbgroup-webhook
-  labels:
-    {{- include "netbird-operator.labels" . | nindent 4 }}
-webhooks:
-- clientConfig:
-    {{- if not $.Values.webhook.enableCertManager }}
-    caBundle: {{ $tls.caCert }}
-    {{ end }}
-    service:
-      name: {{ template "netbird-operator.webhookService" . }}
-      namespace: {{ $.Release.Namespace }}
-      path: /validate-netbird-io-v1-nbgroup
-  failurePolicy: {{ .Values.webhook.failurePolicy }}
-  name: vnbgroup-v1.netbird.io
-  admissionReviewVersions:
-  - v1
-  {{- if .Values.webhook.namespaceSelectors }}
-  namespaceSelector:
-    matchExpressions:
-    {{ toYaml .Values.webhook.namespaceSelectors | nindent 4 }}
-  {{ end }}
-  rules:
-  - apiGroups:
-    - netbird.io
-    apiVersions:
-    - v1
-    operations:
-    - DELETE
-    resources:
-    - "nbgroups"
-  sideEffects: None
-{{- end }}
 ---
 {{- if not $.Values.webhook.enableCertManager }}
 apiVersion: v1

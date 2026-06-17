@@ -219,6 +219,7 @@ Group is the Schema for the groups API.
 
 _Appears in:_
 - [ClusterProxySpec](#clusterproxyspec)
+- [NBServicePolicySpec](#nbservicepolicyspec)
 - [NetworkResourceSpec](#networkresourcespec)
 - [NetworkRouterSpec](#networkrouterspec)
 - [SetupKeySpec](#setupkeyspec)
@@ -320,7 +321,7 @@ _Appears in:_
 | `targetRefs` _LocalPolicyTargetReference array_ | TargetRefs identify the HTTPRoute(s) this policy attaches to, following<br />the Gateway API direct policy-attachment pattern (GEP-713). Each target<br />must be an HTTPRoute in the same namespace as the policy. |  | MaxItems: 16 <br />MinItems: 1 <br /> |
 | `routingMode` _[RoutingMode](#routingmode)_ | RoutingMode selects how the targeted route's backends are exposed: "ip"<br />(host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN<br />domain resource with A/AAAA — dualstack via NetBird DNS). When unset the<br />route defaults to ip. |  | Enum: [ip domain] <br />Optional: \{\} <br /> |
 | `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. Requires an HTTP service. |  | Optional: \{\} <br /> |
-| `accessGroups` _string array_ | AccessGroups are the NetBird group IDs whose peers may reach a private<br />service over the tunnel. Required when Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
+| `accessGroups` _[GroupReference](#groupreference) array_ | AccessGroups are the NetBird groups whose peers may reach a private<br />service over the tunnel, referenced by name, id or local Group reference<br />and resolved the same way as NetworkRouter.resourceGroups. Required when<br />Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
 | `crowdsecMode` _[CrowdsecMode](#crowdsecmode)_ | CrowdsecMode sets the CrowdSec IP-reputation handling for the service. |  | Enum: [off observe enforce] <br />Optional: \{\} <br /> |
 | `accessRestrictions` _[AccessRestrictions](#accessrestrictions)_ | AccessRestrictions sets IP/geo connection-level restrictions. |  | Optional: \{\} <br /> |
 | `passHostHeader` _boolean_ | PassHostHeader, when true, forwards the original client Host header to<br />the backend instead of rewriting it to the backend address. |  | Optional: \{\} <br /> |

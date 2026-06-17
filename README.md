@@ -22,12 +22,12 @@ is managed the same way as the rest of your cluster.
 
 **Service exposure (Gateway API)**
 
-* **Public reverse proxy** — an `HTTPRoute` on a `netbird-public` Gateway
-  publishes a Service through NetBird's L7 reverse proxy under a public hostname.
-  Path-based rules are honoured (one proxy target per backend, carrying its path
-  prefix), and the proxy service is updated idempotently.
-* **Private resource** — a `TCPRoute` on a `netbird-private` Gateway exposes a
-  Service as an L4 network resource reachable only by mesh peers.
+* **Public reverse proxy** — an `HTTPRoute` on a `netbird` Gateway publishes a
+  Service through NetBird's L7 reverse proxy under a public hostname. Path-based
+  rules are honoured (one proxy target per backend, carrying its path prefix),
+  and the proxy service is updated idempotently.
+* **Private resource** — a `TCPRoute` on a `netbird` Gateway exposes a Service
+  as an L4 network resource reachable only by mesh peers.
 * **Per-route policy** (`NBServicePolicy`, GEP-713 direct attachment) configures
   the reverse-proxy service for the route(s) it targets — and keeps the settings
   applied, instead of them being reset on each reconcile:
@@ -66,8 +66,9 @@ is managed the same way as the rest of your cluster.
 * A **`NetworkRouter`** owns a NetBird network: it deploys the routing-peer
   client workload, references the DNS zone (`dnsZoneRef`), routes the
   `serviceCIDRs`, and tags resources with `resourceGroups`.
-* Two **`GatewayClass`es** — `netbird-public` and `netbird-private` — are
-  provided by the operator. A `Gateway` of each class attaches to the router.
+* A single **`GatewayClass`** — `netbird` — is provided by the operator; the
+  route kind (not the class) selects L7 vs L4. A `Gateway` of that class
+  attaches to the router.
 * A **`Service`** is exposed by attaching an **`HTTPRoute`** (public) or
   **`TCPRoute`** (private) to the matching `Gateway`. The operator creates a
   `NetworkResource` for each backend Service and, for HTTP routes, a reverse-proxy
@@ -103,7 +104,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata: { name: public, namespace: netbird }
 spec:
-  gatewayClassName: netbird-public
+  gatewayClassName: netbird
   listeners:
     - { name: kube, protocol: gateway.netbird.io/NetworkRouter, port: 1 }
 ```

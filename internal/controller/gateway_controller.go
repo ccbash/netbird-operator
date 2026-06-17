@@ -50,10 +50,13 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	// Handle resource deletion.
+	// Handle resource deletion (polls for referencing routes; don't log on
+	// every requeue).
 	if !gw.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, sp, gw)
 	}
+
+	ctrl.LoggerFrom(ctx).Info("reconciling gateway")
 
 	// Verify Gateway configuration.
 	routingPeerName, err := gatewayutil.GetNetworkRouterName(gw.Spec.Listeners)

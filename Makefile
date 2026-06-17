@@ -15,9 +15,9 @@ IMG_TAG ?= dev
 IMG_REF := $(IMG_REGISTRY)/$(IMG_REPOSITORY):$(IMG_TAG)
 
 .PHONY: generate
-generate: api/v1/zz_generated.deepcopy.go api/v1alpha1/zz_generated.deepcopy.go pkg/applyconfigurations config/crd/bases charts/netbird-operator/crds docs/api-reference.md
+generate: api/v1alpha1/zz_generated.deepcopy.go pkg/applyconfigurations config/crd/bases charts/netbird-operator/crds docs/api-reference.md
 
-api/v1/zz_generated.deepcopy.go api/v1alpha1/zz_generated.deepcopy.go: $(shell find api -not -name 'zz_generated*') hack/boilerplate.go.txt
+api/v1alpha1/zz_generated.deepcopy.go: $(shell find api -not -name 'zz_generated*') hack/boilerplate.go.txt
 	@go tool controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 pkg/applyconfigurations: $(shell find api -not -name 'zz_generated*') hack/boilerplate.go.txt
@@ -28,7 +28,7 @@ config/crd/bases: $(shell find api)
 	@go tool controller-gen crd paths="./..." output:crd:artifacts:config=config/crd/bases
 	@touch config/crd/bases
 
-charts/netbird-operator/crds: $(GENERATED_CRDS)
+charts/netbird-operator/crds: config/crd/bases
 	@rm -rf $@
 	@mkdir -p $@
 	@cp config/crd/bases/* $@

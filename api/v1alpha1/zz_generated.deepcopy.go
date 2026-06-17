@@ -438,8 +438,10 @@ func (in *NBServicePolicySpec) DeepCopyInto(out *NBServicePolicySpec) {
 	}
 	if in.AccessGroups != nil {
 		in, out := &in.AccessGroups, &out.AccessGroups
-		*out = make([]string, len(*in))
-		copy(*out, *in)
+		*out = make([]GroupReference, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	if in.CrowdsecMode != nil {
 		in, out := &in.CrowdsecMode, &out.CrowdsecMode

@@ -50,30 +50,11 @@ spec:
           {{- if .Values.managementURL }}
           - --netbird-management-url={{.Values.managementURL}}
           {{- end }}
-          {{- if .Values.cluster.name }}
-          - --cluster-name={{.Values.cluster.name}}
-          {{- end }}
-          {{- if .Values.ingress.namespacedNetworks }}
-          - --namespaced-networks={{.Values.ingress.namespacedNetworks}}
-          {{- end }}
-          {{- if .Values.cluster.dns }}
-          - --cluster-dns={{.Values.cluster.dns}}
-          {{- end }}
           {{- if .Values.netbirdAPI.keyFromSecret }}
           - --netbird-api-key=$(NB_API_KEY)
           {{- end }}
-          {{- if .Values.ingress.allowAutomaticPolicyCreation }}
-          - --allow-automatic-policy-creation
-          {{- end }}
           {{- if .Values.routingClientImage }}
           - --netbird-client-image={{.Values.routingClientImage}}
-          {{- end }}
-          {{- if .Values.general.labels }}
-          {{- $list := list }}
-          {{- range $k, $v := .Values.general.labels }}
-          {{- $list = append $list (printf "%s=%s" $k $v) }}
-          {{- end }}
-          - --default-labels="{{ join ", " $list }}"
           {{- end }}
           ports:
             - name: webhook-server

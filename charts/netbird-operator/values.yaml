@@ -134,19 +134,9 @@ operator:
   affinity: {}
 
 # DEPRECATED: Use NetworkRouters and NetworkResources instead.
-ingress:
-  # Enable ingress capabilities to expose services
-  enabled: false
-  # Create router per namespace, useful for strict networking requirements
-  namespacedNetworks: false
-  # Allow creating policies through Service annotations
-  allowAutomaticPolicyCreation: false
-
 cluster:
-  # Cluster DNS name (used for webhooks certificates and for network resource DNS names)
+  # Cluster DNS name (used for webhook certificate SANs)
   dns: svc.cluster.local
-  # Cluster name (used for generating network and network resource names in NetBird)
-  name: kubernetes
 
 netbirdAPI:
   keyFromSecret:

@@ -58,7 +58,6 @@ func TestApplyServicePolicy(t *testing.T) {
 	mode := nbv1alpha1.CrowdsecModeEnforce
 	p := nbv1alpha1.NBServicePolicy{Spec: nbv1alpha1.NBServicePolicySpec{
 		Private:      new(true),
-		AccessGroups: []string{"All", "admins"},
 		CrowdsecMode: &mode,
 		AccessRestrictions: &nbv1alpha1.AccessRestrictions{
 			BlockedCountries: []string{"RU", "KP"},
@@ -71,7 +70,8 @@ func TestApplyServicePolicy(t *testing.T) {
 
 	require.NotNil(t, req.Private)
 	require.True(t, *req.Private)
-	require.Equal(t, []string{"All", "admins"}, *req.AccessGroups)
+	// AccessGroups are resolved to NetBird IDs by the controller, not here.
+	require.Nil(t, req.AccessGroups)
 	require.NotNil(t, req.AccessRestrictions)
 	require.Equal(t, api.AccessRestrictionsCrowdsecModeEnforce, *req.AccessRestrictions.CrowdsecMode)
 	require.Equal(t, []string{"RU", "KP"}, *req.AccessRestrictions.BlockedCountries)
@@ -95,16 +95,30 @@ func TestApplyServicePolicies_OldestWins(t *testing.T) {
 	// servicePoliciesFor yields newest-first; applying in that order means the
 	// oldest is applied last and wins the conflicting field.
 	newest := nbv1alpha1.NBServicePolicy{Spec: nbv1alpha1.NBServicePolicySpec{Private: new(false)}}
-	oldest := nbv1alpha1.NBServicePolicy{Spec: nbv1alpha1.NBServicePolicySpec{
-		Private:      new(true),
-		AccessGroups: []string{"All"},
-	}}
+	oldest := nbv1alpha1.NBServicePolicy{Spec: nbv1alpha1.NBServicePolicySpec{Private: new(true)}}
 
 	req := api.ServiceRequest{}
 	applyServicePolicies([]nbv1alpha1.NBServicePolicy{newest, oldest}, &req)
 
-	require.True(t, *req.Private)                        // oldest wins the conflict
-	require.Equal(t, []string{"All"}, *req.AccessGroups) // non-conflicting field still applied
+	require.True(t, *req.Private) // oldest wins the conflict
+}
+
+func TestAccessGroupRefs(t *testing.T) {
+	t.Parallel()
+
+	// Policies are newest-first; the oldest non-empty list wins.
+	newest := nbv1alpha1.NBServicePolicy{Spec: nbv1alpha1.NBServicePolicySpec{
+		AccessGroups: []nbv1alpha1.GroupReference{{Name: new("newest")}},
+	}}
+	oldest := nbv1alpha1.NBServicePolicy{Spec: nbv1alpha1.NBServicePolicySpec{
+		AccessGroups: []nbv1alpha1.GroupReference{{Name: new("All")}},
+	}}
+	refs := accessGroupRefs([]nbv1alpha1.NBServicePolicy{newest, oldest})
+	require.Len(t, refs, 1)
+	require.Equal(t, "All", *refs[0].Name)
+
+	// No policy sets access groups -> nil.
+	require.Nil(t, accessGroupRefs([]nbv1alpha1.NBServicePolicy{{}}))
 }
 
 func TestRoutesForServicePolicy(t *testing.T) {

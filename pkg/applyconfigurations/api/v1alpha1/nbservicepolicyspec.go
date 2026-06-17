@@ -27,9 +27,11 @@ type NBServicePolicySpecApplyConfiguration struct {
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
 	// auto-generated from AccessGroups. Requires an HTTP service.
 	Private *bool `json:"private,omitempty"`
-	// AccessGroups are the NetBird group IDs whose peers may reach a private
-	// service over the tunnel. Required when Private is true; ignored otherwise.
-	AccessGroups []string `json:"accessGroups,omitempty"`
+	// AccessGroups are the NetBird groups whose peers may reach a private
+	// service over the tunnel, referenced by name, id or local Group reference
+	// and resolved the same way as NetworkRouter.resourceGroups. Required when
+	// Private is true; ignored otherwise.
+	AccessGroups []GroupReferenceApplyConfiguration `json:"accessGroups,omitempty"`
 	// CrowdsecMode sets the CrowdSec IP-reputation handling for the service.
 	CrowdsecMode *apiv1alpha1.CrowdsecMode `json:"crowdsecMode,omitempty"`
 	// AccessRestrictions sets IP/geo connection-level restrictions.
@@ -77,9 +79,12 @@ func (b *NBServicePolicySpecApplyConfiguration) WithPrivate(value bool) *NBServi
 // WithAccessGroups adds the given value to the AccessGroups field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the AccessGroups field.
-func (b *NBServicePolicySpecApplyConfiguration) WithAccessGroups(values ...string) *NBServicePolicySpecApplyConfiguration {
+func (b *NBServicePolicySpecApplyConfiguration) WithAccessGroups(values ...*GroupReferenceApplyConfiguration) *NBServicePolicySpecApplyConfiguration {
 	for i := range values {
-		b.AccessGroups = append(b.AccessGroups, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithAccessGroups")
+		}
+		b.AccessGroups = append(b.AccessGroups, *values[i])
 	}
 	return b
 }
