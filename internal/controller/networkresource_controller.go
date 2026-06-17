@@ -139,7 +139,11 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	fqdn := strings.Join([]string{svc.Name, svc.Namespace, zone.Domain}, ".")
+	// Single label under the zone: NetBird's managed zone only serves a single
+	// label below the apex, so svc and namespace are joined with a hyphen
+	// ("<svc>-<ns>.<zone>") rather than as dotted sub-labels
+	// ("<svc>.<ns>.<zone>"), which the zone creates but doesn't resolve.
+	fqdn := strings.Join([]string{svc.Name + "-" + svc.Namespace, zone.Domain}, ".")
 
 	resourceID, err := func() (string, error) {
 		netReq := api.NetworkResourceRequest{
