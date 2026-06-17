@@ -28,7 +28,7 @@ config/crd/bases: $(shell find api)
 	@go tool controller-gen crd paths="./..." output:crd:artifacts:config=config/crd/bases
 	@touch config/crd/bases
 
-charts/netbird-operator/crds: $(GENERATED_CRDS)
+charts/netbird-operator/crds: config/crd/bases
 	@rm -rf $@
 	@mkdir -p $@
 	@cp config/crd/bases/* $@
