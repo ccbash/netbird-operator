@@ -94,9 +94,19 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 		return ctrl.Result{}, err
 	}
 
-	svcIdx, err := r.indexBackendServices(ctx, hr, false)
+	// Tolerate missing backend Services: a referenced Service may not exist yet
+	// (or at all). Wire up the resolvable backends and requeue for the rest
+	// instead of failing the whole route with an error + stack trace.
+	svcIdx, err := r.indexBackendServices(ctx, hr, true)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	missing := missingBackendNames(hr, svcIdx)
+	if len(missing) > 0 {
+		logger.Info("backend Service(s) not found; routing the resolvable backends and retrying", "missing", missing)
+	}
+	if len(svcIdx) == 0 {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	// Resolve the attached NBServicePolicies up front. routingMode decides
@@ -134,7 +144,29 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 		return ctrl.Result{}, err
 	}
 
+	// Some backends weren't resolvable; retry so they're wired up once present.
+	if len(missing) > 0 {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// missingBackendNames returns the distinct backendRef Service names that are not
+// present in the resolved set.
+func missingBackendNames(hr *gwv1.HTTPRoute, found map[string]corev1.Service) []string {
+	var missing []string
+	seen := map[string]bool{}
+	for _, rule := range hr.Spec.Rules {
+		for _, ref := range rule.BackendRefs {
+			name := string(ref.Name)
+			if _, ok := found[name]; ok || seen[name] {
+				continue
+			}
+			seen[name] = true
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 // indexBackendServices returns the Services referenced by the route's
