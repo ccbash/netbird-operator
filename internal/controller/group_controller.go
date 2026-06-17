@@ -11,12 +11,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 	"github.com/netbirdio/kubernetes-operator/internal/k8sutil"
+	"github.com/netbirdio/kubernetes-operator/internal/netbirdutil"
 )
 
 type GroupReconciler struct {
@@ -97,7 +99,16 @@ func (r *GroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 func (r *GroupReconciler) reconcileDelete(ctx context.Context, sp *patch.SerialPatcher, group *nbv1alpha1.Group) (ctrl.Result, error) {
 	if group.Status.GroupID != "" {
 		err := r.Netbird.Groups.Delete(ctx, group.Status.GroupID)
-		if err != nil && !netbird.IsNotFound(err) {
+		switch {
+		case err == nil, netbird.IsNotFound(err):
+			// deleted, or already gone
+		case netbirdutil.IsConflict(err):
+			// The group is still referenced (by a resource, policy, router peer
+			// group or setup key). Back off and retry instead of erroring every
+			// reconcile — the finalizer keeps the object until the group frees.
+			logf.FromContext(ctx).Info("group still in use, retrying deletion", "groupID", group.Status.GroupID)
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		default:
 			return ctrl.Result{}, err
 		}
 	}
