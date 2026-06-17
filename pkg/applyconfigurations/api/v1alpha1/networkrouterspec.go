@@ -11,6 +11,18 @@ package v1alpha1
 type NetworkRouterSpecApplyConfiguration struct {
 	// DNSZoneRef is a reference to the DNS zone used to create records for resources.
 	DNSZoneRef *DNSZoneReferenceApplyConfiguration `json:"dnsZoneRef,omitempty"`
+	// ServiceCIDRs are CIDRs routed into the NetBird network as subnet
+	// resources, so that addresses in these ranges (e.g. the cluster's IPv4
+	// and IPv6 Service CIDRs) are reachable through this router's routing
+	// peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP
+	// in one of these ranges and route to it via the matching subnet resource.
+	ServiceCIDRs []string `json:"serviceCIDRs,omitempty"`
+	// ResourceGroups are the NetBird groups assigned to the resources created
+	// in this router's network — both the ServiceCIDRs subnet resources and the
+	// per-service resources backing HTTPRoutes (the latter inherit these unless
+	// the NetworkResource sets its own Groups). Access policies target these
+	// groups to grant peers access to the routed resources.
+	ResourceGroups []GroupReferenceApplyConfiguration `json:"resourceGroups,omitempty"`
 	// Netbird client image.
 	Image *string `json:"image,omitempty"`
 	// Log level for Netbird client.
@@ -30,6 +42,29 @@ func NetworkRouterSpec() *NetworkRouterSpecApplyConfiguration {
 // If called multiple times, the DNSZoneRef field is set to the value of the last call.
 func (b *NetworkRouterSpecApplyConfiguration) WithDNSZoneRef(value *DNSZoneReferenceApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
 	b.DNSZoneRef = value
+	return b
+}
+
+// WithServiceCIDRs adds the given value to the ServiceCIDRs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ServiceCIDRs field.
+func (b *NetworkRouterSpecApplyConfiguration) WithServiceCIDRs(values ...string) *NetworkRouterSpecApplyConfiguration {
+	for i := range values {
+		b.ServiceCIDRs = append(b.ServiceCIDRs, values[i])
+	}
+	return b
+}
+
+// WithResourceGroups adds the given value to the ResourceGroups field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ResourceGroups field.
+func (b *NetworkRouterSpecApplyConfiguration) WithResourceGroups(values ...*GroupReferenceApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithResourceGroups")
+		}
+		b.ResourceGroups = append(b.ResourceGroups, *values[i])
+	}
 	return b
 }
 

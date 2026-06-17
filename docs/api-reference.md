@@ -154,6 +154,24 @@ _Appears in:_
 | `enforce` |  |
 
 
+#### DNSRecordStatus
+
+
+
+DNSRecordStatus tracks a single DNS record managed for a NetworkResource.
+
+
+
+_Appears in:_
+- [NetworkResourceStatus](#networkresourcestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _string_ | Type is the record type (A or AAAA). |  |  |
+| `content` _string_ | Content is the record content (the ClusterIP). |  |  |
+| `id` _string_ | ID is the Netbird DNS record id. |  |  |
+
+
 #### DNSZoneReference
 
 
@@ -202,6 +220,7 @@ Group is the Schema for the groups API.
 _Appears in:_
 - [ClusterProxySpec](#clusterproxyspec)
 - [NetworkResourceSpec](#networkresourcespec)
+- [NetworkRouterSpec](#networkrouterspec)
 - [SetupKeySpec](#setupkeyspec)
 
 | Field | Description | Default | Validation |
@@ -299,6 +318,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `targetRefs` _LocalPolicyTargetReference array_ | TargetRefs identify the HTTPRoute(s) this policy attaches to, following<br />the Gateway API direct policy-attachment pattern (GEP-713). Each target<br />must be an HTTPRoute in the same namespace as the policy. |  | MaxItems: 16 <br />MinItems: 1 <br /> |
+| `routingMode` _[RoutingMode](#routingmode)_ | RoutingMode selects how the targeted route's backends are exposed: "ip"<br />(host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN<br />domain resource with A/AAAA — dualstack via NetBird DNS). When unset the<br />route defaults to ip. |  | Enum: [ip domain] <br />Optional: \{\} <br /> |
 | `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. Requires an HTTP service. |  | Optional: \{\} <br /> |
 | `accessGroups` _string array_ | AccessGroups are the NetBird group IDs whose peers may reach a private<br />service over the tunnel. Required when Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
 | `crowdsecMode` _[CrowdsecMode](#crowdsecmode)_ | CrowdsecMode sets the CrowdSec IP-reputation handling for the service. |  | Enum: [off observe enforce] <br />Optional: \{\} <br /> |
@@ -361,6 +381,7 @@ _Appears in:_
 | `networkRouterRef` _[CrossNamespaceReference](#crossnamespacereference)_ | NetworkRouterRef is a reference to the network and router where the resource will be created. |  |  |
 | `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef is a reference to the service to expose in the Network. |  |  |
 | `groups` _[GroupReference](#groupreference) array_ | Groups are references to groups that the resource will be a part of. |  | Optional: \{\} <br /> |
+| `routingMode` _[RoutingMode](#routingmode)_ | RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN<br />domain resource). Defaults to ip. | ip | Enum: [ip domain] <br />Optional: \{\} <br /> |
 
 
 #### NetworkResourceStatus
@@ -381,7 +402,8 @@ _Appears in:_
 | `networkID` _string_ | NetworkID is the id of the network the resource is created in. |  | Optional: \{\} <br /> |
 | `resourceID` _string_ | ResourceID is the id of the created resource. |  | Optional: \{\} <br /> |
 | `dnsZoneID` _string_ | DNSZoneID is the id of the zone the DNS record is created in. |  | Optional: \{\} <br /> |
-| `dnsRecordID` _string_ | DNSRecordID is the id of the created DNS record. |  | Optional: \{\} <br /> |
+| `dnsRecordID` _string_ | DNSRecordID is the id of the legacy single A record created before<br />dualstack support. Retained only so it can be cleaned up on upgrade;<br />records are now tracked in DNSRecords. |  | Optional: \{\} <br /> |
+| `dnsRecords` _[DNSRecordStatus](#dnsrecordstatus) array_ | DNSRecords are the DNS records created for the resource — one A record<br />per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP. |  | Optional: \{\} <br /> |
 
 
 #### NetworkRouter
@@ -419,6 +441,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `dnsZoneRef` _[DNSZoneReference](#dnszonereference)_ | DNSZoneRef is a reference to the DNS zone used to create records for resources. |  | Required: \{\} <br /> |
+| `serviceCIDRs` _string array_ | ServiceCIDRs are CIDRs routed into the NetBird network as subnet<br />resources, so that addresses in these ranges (e.g. the cluster's IPv4<br />and IPv6 Service CIDRs) are reachable through this router's routing<br />peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP<br />in one of these ranges and route to it via the matching subnet resource. |  | Optional: \{\} <br /> |
+| `resourceGroups` _[GroupReference](#groupreference) array_ | ResourceGroups are the NetBird groups assigned to the resources created<br />in this router's network — both the ServiceCIDRs subnet resources and the<br />per-service resources backing HTTPRoutes (the latter inherit these unless<br />the NetworkResource sets its own Groups). Access policies target these<br />groups to grant peers access to the routed resources. |  | Optional: \{\} <br /> |
 | `image` _string_ | Netbird client image. |  | Optional: \{\} <br /> |
 | `logLevel` _string_ | Log level for Netbird client. |  | Optional: \{\} <br /> |
 | `workloadOverride` _[WorkloadOverride](#workloadoverride)_ | WorkloadOverride contains configuration that will override the default workload. |  | Optional: \{\} <br /> |
@@ -441,6 +465,43 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the NetworkRouter. |  | Optional: \{\} <br /> |
 | `routingPeerID` _string_ | RoutingPeerID is the id of the created routing peer. |  | Optional: \{\} <br /> |
 | `networkID` _string_ | NetworkID is the id of the network the routing peer was created in. |  | Optional: \{\} <br /> |
+| `serviceCIDRResources` _[ServiceCIDRResource](#servicecidrresource) array_ | ServiceCIDRResources tracks the subnet network resources created for<br />ServiceCIDRs, for idempotent reconcile and cleanup. |  | Optional: \{\} <br /> |
+
+
+#### RoutingMode
+
+_Underlying type:_ _string_
+
+RoutingMode selects how a Service is exposed as a NetBird network resource.
+
+_Validation:_
+- Enum: [ip domain]
+
+_Appears in:_
+- [NBServicePolicySpec](#nbservicepolicyspec)
+- [NetworkResourceSpec](#networkresourcespec)
+
+| Field | Description |
+| --- | --- |
+| `ip` | RoutingModeIP routes the Service's ClusterIP directly: a host resource +<br />host proxy target. DNS-independent; effectively IPv4 (the primary<br />ClusterIP). This is the conservative default.<br /> |
+| `domain` | RoutingModeDomain routes via the Service FQDN: a domain resource + domain<br />proxy target, resolved through NetBird DNS (the A/AAAA records). Supports<br />dualstack but depends on NetBird DNS resolution.<br /> |
+
+
+#### ServiceCIDRResource
+
+
+
+ServiceCIDRResource tracks the NetBird subnet resource created for a CIDR.
+
+
+
+_Appears in:_
+- [NetworkRouterStatus](#networkrouterstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `cidr` _string_ | CIDR is the routed range. |  |  |
+| `resourceID` _string_ | ResourceID is the NetBird network resource id. |  |  |
 
 
 #### SetupKey

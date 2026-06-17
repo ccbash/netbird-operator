@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -115,18 +116,49 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	groupIDs, err := netbirdutil.GetGroupIDs(ctx, r.Client, r.Netbird, netResource.Spec.Groups, netResource.Namespace)
+	// Inherit the router's resource groups when the NetworkResource doesn't
+	// specify its own, so HTTPRoute-created resources (which set no groups) are
+	// still reachable by policy.
+	groupRefs := netResource.Spec.Groups
+	if len(groupRefs) == 0 {
+		groupRefs = netRouter.Spec.ResourceGroups
+	}
+	groupIDs, err := netbirdutil.GetGroupIDs(ctx, r.Client, r.Netbird, groupRefs, netResource.Namespace)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	controllerutil.AddFinalizer(netResource, k8sutil.Finalizer("networkresource"))
 
+	// Resolve the DNS zone first: the resource is a *domain* resource whose
+	// address is the Service FQDN (built from the zone's Domain). A reverse-proxy
+	// domain target resolves that FQDN via NetBird DNS (the A/AAAA records below)
+	// to a ClusterIP, which is reachable via the router's service-CIDR subnet
+	// resource. The resource type (domain) is derived by NetBird from the address.
+	zone, err := netbirdutil.GetDNSZoneByName(ctx, r.Netbird, netRouter.Spec.DNSZoneRef.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// Single label under the zone: NetBird's managed zone only serves a single
+	// label below the apex, so svc and namespace are joined with a hyphen
+	// ("<svc>-<ns>.<zone>") rather than as dotted sub-labels
+	// ("<svc>.<ns>.<zone>"), which the zone creates but doesn't resolve.
+	fqdn := strings.Join([]string{svc.Name + "-" + svc.Namespace, zone.Domain}, ".")
+
+	// RoutingMode selects how the resource is addressed: a host resource at the
+	// ClusterIP (ip, the default) or a domain resource at the FQDN (domain).
+	address := svc.Spec.ClusterIP
+	desiredType := api.NetworkResourceTypeHost
+	if netResource.Spec.RoutingMode == nbv1alpha1.RoutingModeDomain {
+		address = fqdn
+		desiredType = api.NetworkResourceTypeDomain
+	}
+
 	resourceID, err := func() (string, error) {
 		netReq := api.NetworkResourceRequest{
 			Name:        string(netResource.UID),
 			Description: new(svc.Name + "/" + svc.Namespace),
-			Address:     svc.Spec.ClusterIP,
+			Address:     address,
 			Enabled:     true,
 			Groups:      groupIDs,
 		}
@@ -136,7 +168,16 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				return "", err
 			}
 			if err == nil {
-				return netResp.Id, nil
+				// NetBird derives the resource type from the address but does
+				// not change it on update, so switching routing mode (host<->
+				// domain) leaves a stale type that the proxy target rejects.
+				// Recreate when the live type doesn't match the desired one.
+				if netResp.Type == desiredType {
+					return netResp.Id, nil
+				}
+				if err := r.Netbird.Networks.Resources(netRouter.Status.NetworkID).Delete(ctx, netResource.Status.ResourceID); err != nil && !netbird.IsNotFound(err) {
+					return "", err
+				}
 			}
 		}
 		netResp, err := r.Netbird.Networks.Resources(netRouter.Status.NetworkID).Create(ctx, netReq)
@@ -155,49 +196,11 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	// Create DNS records for resource.
-	zone, err := netbirdutil.GetDNSZoneByName(ctx, r.Netbird, netRouter.Spec.DNSZoneRef.Name)
-	if err != nil {
+	// Publish A/AAAA records for the FQDN: one A per IPv4 ClusterIP and one AAAA
+	// per IPv6 ClusterIP, so the domain target resolves to the backend.
+	if err := r.reconcileDNSRecords(ctx, sp, netResource, zone, fqdn, clusterIPsOf(svc)); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	// If zone has changed we need to delete the old records.
-	if netResource.Status.DNSZoneID != "" && netResource.Status.DNSZoneID != zone.Id {
-		err = r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID)
-		if err != nil && !netbird.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-		netResource.Status.DNSZoneID = ""
-		netResource.Status.DNSRecordID = ""
-	}
-
-	recordID, err := func() (string, error) {
-		dnsReq := api.DNSRecordRequest{
-			Content: svc.Spec.ClusterIP,
-			Name:    strings.Join([]string{svc.Name, svc.Namespace, zone.Name}, "."),
-			Ttl:     int(5 * time.Minute / time.Second),
-			Type:    api.DNSRecordTypeA,
-		}
-		if netResource.Status.DNSZoneID != "" && netResource.Status.DNSRecordID != "" {
-			recordResp, err := r.Netbird.DNSZones.UpdateRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID, dnsReq)
-			if err != nil && !netbird.IsNotFound(err) {
-				return "", err
-			}
-			if err == nil {
-				return recordResp.Id, nil
-			}
-		}
-		recordResp, err := r.Netbird.DNSZones.CreateRecord(ctx, zone.Id, dnsReq)
-		if err != nil {
-			return "", err
-		}
-		return recordResp.Id, nil
-	}()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	netResource.Status.DNSZoneID = zone.Id
-	netResource.Status.DNSRecordID = recordID
 
 	conditions.MarkTrue(netResource, nbv1alpha1.ReadyCondition, nbv1alpha1.ReconciledReason, "")
 	err = sp.Patch(ctx, netResource, patch.WithStatusObservedGeneration{})
@@ -207,6 +210,130 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
+// clusterIPsOf returns the Service's dualstack ClusterIPs, falling back to the
+// single ClusterIP for older API objects.
+func clusterIPsOf(svc *corev1.Service) []string {
+	if len(svc.Spec.ClusterIPs) > 0 {
+		return svc.Spec.ClusterIPs
+	}
+	return []string{svc.Spec.ClusterIP}
+}
+
+// recordMatchKey builds a comparison key for a DNS record that is stable across
+// the multiple textual forms of an IP. An IPv6 address has several
+// representations (e.g. "2001:db8::1" vs "2001:0db8:0:0:0:0:0:1"); if NetBird
+// stores a record in a different canonical form than the Service's ClusterIP
+// string, a raw-string compare would miss the match and the record would be
+// deleted and recreated (hitting "identical record already exists"). Comparing
+// the canonicalized IP avoids that.
+func recordMatchKey(recordType, content string) string {
+	if ip := net.ParseIP(content); ip != nil {
+		content = ip.String()
+	}
+	return recordType + "|" + content
+}
+
+// reconcileDNSRecords ensures the zone holds one A record per IPv4 and one AAAA
+// per IPv6 ClusterIP at fqdn. It reconciles against the zone's *live* records
+// (via ListRecords), adopting any that already exist by name+type+content, so a
+// status that has drifted from NetBird can't cause a duplicate create
+// ("identical record already exists") or a spurious delete. Only stale records
+// at this exact fqdn are removed; records under other names are untouched.
+func (r *NetworkResourceReconciler) reconcileDNSRecords(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource, zone api.Zone, fqdn string, clusterIPs []string) error {
+	type desiredRecord struct {
+		rType   api.DNSRecordType
+		content string
+	}
+	var desired []desiredRecord
+	for _, ip := range clusterIPs {
+		parsed := net.ParseIP(ip)
+		if parsed == nil {
+			continue
+		}
+		if parsed.To4() != nil {
+			desired = append(desired, desiredRecord{api.DNSRecordTypeA, ip})
+		} else {
+			desired = append(desired, desiredRecord{api.DNSRecordTypeAAAA, ip})
+		}
+	}
+
+	// On a zone change, drop records tracked in the old zone first.
+	if netResource.Status.DNSZoneID != "" && netResource.Status.DNSZoneID != zone.Id {
+		for _, rec := range netResource.Status.DNSRecords {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, rec.ID); err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+		}
+		if netResource.Status.DNSRecordID != "" {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+		}
+		netResource.Status.DNSRecords = nil
+		netResource.Status.DNSRecordID = ""
+		netResource.Status.DNSZoneID = ""
+	}
+
+	// Clean up the legacy single A record (its name used the zone identifier,
+	// not the domain) now that records are managed as a set under fqdn.
+	if netResource.Status.DNSRecordID != "" {
+		if err := r.Netbird.DNSZones.DeleteRecord(ctx, zone.Id, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
+			return err
+		}
+		netResource.Status.DNSRecordID = ""
+	}
+
+	// Index the zone's live records that belong to this resource (name == fqdn),
+	// so we can adopt existing ones rather than creating duplicates.
+	zoneRecords, err := r.Netbird.DNSZones.ListRecords(ctx, zone.Id)
+	if err != nil {
+		return err
+	}
+	existing := map[string]api.DNSRecord{}
+	var ours []api.DNSRecord
+	for _, rec := range zoneRecords {
+		if rec.Name != fqdn {
+			continue
+		}
+		ours = append(ours, rec)
+		existing[recordMatchKey(string(rec.Type), rec.Content)] = rec
+	}
+
+	kept := make([]nbv1alpha1.DNSRecordStatus, 0, len(desired))
+	desiredKeys := map[string]bool{}
+	for _, d := range desired {
+		key := recordMatchKey(string(d.rType), d.content)
+		desiredKeys[key] = true
+		if cur, ok := existing[key]; ok {
+			kept = append(kept, nbv1alpha1.DNSRecordStatus{Type: string(d.rType), Content: d.content, ID: cur.Id})
+			continue
+		}
+		resp, err := r.Netbird.DNSZones.CreateRecord(ctx, zone.Id, api.DNSRecordRequest{
+			Content: d.content,
+			Name:    fqdn,
+			Ttl:     int(5 * time.Minute / time.Second),
+			Type:    d.rType,
+		})
+		if err != nil {
+			return err
+		}
+		kept = append(kept, nbv1alpha1.DNSRecordStatus{Type: string(d.rType), Content: d.content, ID: resp.Id})
+	}
+
+	// Delete stale records at this fqdn (e.g. a previous ClusterIP).
+	for _, rec := range ours {
+		if !desiredKeys[recordMatchKey(string(rec.Type), rec.Content)] {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, zone.Id, rec.Id); err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+		}
+	}
+
+	netResource.Status.DNSZoneID = zone.Id
+	netResource.Status.DNSRecords = kept
+	return sp.Patch(ctx, netResource)
+}
+
 func (r *NetworkResourceReconciler) reconcileDelete(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource) (ctrl.Result, error) {
 	if netResource.Status.NetworkID != "" && netResource.Status.ResourceID != "" {
 		err := r.Netbird.Networks.Resources(netResource.Status.NetworkID).Delete(ctx, netResource.Status.ResourceID)
@@ -214,10 +341,16 @@ func (r *NetworkResourceReconciler) reconcileDelete(ctx context.Context, sp *pat
 			return ctrl.Result{}, err
 		}
 	}
-	if netResource.Status.DNSZoneID != "" && netResource.Status.DNSRecordID != "" {
-		err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID)
-		if err != nil && !netbird.IsNotFound(err) {
-			return ctrl.Result{}, err
+	if netResource.Status.DNSZoneID != "" {
+		for _, rec := range netResource.Status.DNSRecords {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, rec.ID); err != nil && !netbird.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		}
+		if netResource.Status.DNSRecordID != "" {
+			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 

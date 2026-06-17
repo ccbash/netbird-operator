@@ -92,6 +92,25 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 		}
 
+		// Resolve the attached NBServicePolicies up front. routingMode decides
+		// whether each backend is exposed as a host (ClusterIP) or domain (FQDN)
+		// resource + matching proxy target; it defaults to ip (oldest policy
+		// wins, matching applyServicePolicies).
+		policies, err := r.servicePoliciesFor(ctx, hr)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		routingMode := nbv1alpha1.RoutingModeIP
+		for i := range policies {
+			if policies[i].Spec.RoutingMode != "" {
+				routingMode = policies[i].Spec.RoutingMode
+			}
+		}
+		targetType := api.ServiceTargetTargetTypeHost
+		if routingMode == nbv1alpha1.RoutingModeDomain {
+			targetType = api.ServiceTargetTargetTypeDomain
+		}
+
 		for _, svc := range svcIdx {
 			controllerRef, err := k8sutil.ControllerReference(&svc, r.Scheme())
 			if err != nil {
@@ -107,7 +126,8 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				WithSpec(
 					nbv1alpha1ac.NetworkResourceSpec().
 						WithNetworkRouterRef(nbv1alpha1ac.CrossNamespaceReference().WithName(netRouter.Name).WithNamespace(netRouter.Namespace)).
-						WithServiceRef(corev1.LocalObjectReference{Name: svc.Name}),
+						WithServiceRef(corev1.LocalObjectReference{Name: svc.Name}).
+						WithRoutingMode(routingMode),
 				)
 			err = r.Client.Apply(ctx, netResourceAC, client.ForceOwnership)
 			if err != nil {
@@ -150,28 +170,22 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 						"service", svc.Name, "port", svc.Spec.Ports[0].Port)
 				}
 				targets = append(targets, api.ServiceTarget{
-					Enabled:    true,
-					Path:       path,
-					Port:       backendPortFor(svc, refPort),
-					TargetId:   resourceID[svc.Name],
-					Protocol:   api.ServiceTargetProtocolHttp,
-					TargetType: api.ServiceTargetTargetTypeHost,
+					Enabled:  true,
+					Path:     path,
+					Port:     backendPortFor(svc, refPort),
+					TargetId: resourceID[svc.Name],
+					Protocol: api.ServiceTargetProtocolHttp,
+					// Must match the backend resource's type, which follows the
+					// route's routing mode (host for ip, domain for domain).
+					TargetType: targetType,
 				})
 			}
 		}
 		sortTargets(targets)
 
-		// Create proxy service.
+		// Create proxy service. Per-service config (private, access groups,
+		// CrowdSec, header behaviour) comes from the policies resolved above.
 		proxyServices, err := r.Netbird.ReverseProxyServices.List(ctx)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		// Per-service config (private, access groups, CrowdSec, IP/geo
-		// restrictions, header behaviour) is supplied by NBServicePolicy
-		// objects attached to this route via GEP-713 policy attachment.
-		// Without folding these in, only the fields below are ever sent and
-		// anything configured out-of-band is reset on the next reconcile.
-		policies, err := r.servicePoliciesFor(ctx, hr)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

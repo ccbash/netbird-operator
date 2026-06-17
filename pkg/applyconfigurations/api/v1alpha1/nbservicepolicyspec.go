@@ -18,6 +18,11 @@ type NBServicePolicySpecApplyConfiguration struct {
 	// the Gateway API direct policy-attachment pattern (GEP-713). Each target
 	// must be an HTTPRoute in the same namespace as the policy.
 	TargetRefs []v1.LocalPolicyTargetReference `json:"targetRefs,omitempty"`
+	// RoutingMode selects how the targeted route's backends are exposed: "ip"
+	// (host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN
+	// domain resource with A/AAAA — dualstack via NetBird DNS). When unset the
+	// route defaults to ip.
+	RoutingMode *apiv1alpha1.RoutingMode `json:"routingMode,omitempty"`
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
 	// auto-generated from AccessGroups. Requires an HTTP service.
@@ -50,6 +55,14 @@ func (b *NBServicePolicySpecApplyConfiguration) WithTargetRefs(values ...v1.Loca
 	for i := range values {
 		b.TargetRefs = append(b.TargetRefs, values[i])
 	}
+	return b
+}
+
+// WithRoutingMode sets the RoutingMode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RoutingMode field is set to the value of the last call.
+func (b *NBServicePolicySpecApplyConfiguration) WithRoutingMode(value apiv1alpha1.RoutingMode) *NBServicePolicySpecApplyConfiguration {
+	b.RoutingMode = &value
 	return b
 }
 

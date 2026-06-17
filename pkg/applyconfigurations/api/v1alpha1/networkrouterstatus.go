@@ -21,6 +21,9 @@ type NetworkRouterStatusApplyConfiguration struct {
 	RoutingPeerID *string `json:"routingPeerID,omitempty"`
 	// NetworkID is the id of the network the routing peer was created in.
 	NetworkID *string `json:"networkID,omitempty"`
+	// ServiceCIDRResources tracks the subnet network resources created for
+	// ServiceCIDRs, for idempotent reconcile and cleanup.
+	ServiceCIDRResources []ServiceCIDRResourceApplyConfiguration `json:"serviceCIDRResources,omitempty"`
 }
 
 // NetworkRouterStatusApplyConfiguration constructs a declarative configuration of the NetworkRouterStatus type for use with
@@ -63,5 +66,18 @@ func (b *NetworkRouterStatusApplyConfiguration) WithRoutingPeerID(value string) 
 // If called multiple times, the NetworkID field is set to the value of the last call.
 func (b *NetworkRouterStatusApplyConfiguration) WithNetworkID(value string) *NetworkRouterStatusApplyConfiguration {
 	b.NetworkID = &value
+	return b
+}
+
+// WithServiceCIDRResources adds the given value to the ServiceCIDRResources field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ServiceCIDRResources field.
+func (b *NetworkRouterStatusApplyConfiguration) WithServiceCIDRResources(values ...*ServiceCIDRResourceApplyConfiguration) *NetworkRouterStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithServiceCIDRResources")
+		}
+		b.ServiceCIDRResources = append(b.ServiceCIDRResources, *values[i])
+	}
 	return b
 }

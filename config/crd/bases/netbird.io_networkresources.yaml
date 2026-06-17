@@ -94,6 +94,15 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              routingMode:
+                default: ip
+                description: |-
+                  RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN
+                  domain resource). Defaults to ip.
+                enum:
+                - ip
+                - domain
+                type: string
               serviceRef:
                 description: ServiceRef is a reference to the service to expose in
                   the Network.
@@ -179,8 +188,34 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               dnsRecordID:
-                description: DNSRecordID is the id of the created DNS record.
+                description: |-
+                  DNSRecordID is the id of the legacy single A record created before
+                  dualstack support. Retained only so it can be cleaned up on upgrade;
+                  records are now tracked in DNSRecords.
                 type: string
+              dnsRecords:
+                description: |-
+                  DNSRecords are the DNS records created for the resource — one A record
+                  per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP.
+                items:
+                  description: DNSRecordStatus tracks a single DNS record managed
+                    for a NetworkResource.
+                  properties:
+                    content:
+                      description: Content is the record content (the ClusterIP).
+                      type: string
+                    id:
+                      description: ID is the Netbird DNS record id.
+                      type: string
+                    type:
+                      description: Type is the record type (A or AAAA).
+                      type: string
+                  required:
+                  - content
+                  - id
+                  - type
+                  type: object
+                type: array
               dnsZoneID:
                 description: DNSZoneID is the id of the zone the DNS record is created
                   in.
