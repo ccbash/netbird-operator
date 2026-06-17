@@ -63,6 +63,51 @@ spec:
               logLevel:
                 description: Log level for Netbird client.
                 type: string
+              resourceGroups:
+                description: |-
+                  ResourceGroups are the NetBird groups assigned to the resources created
+                  in this router's network — both the ServiceCIDRs subnet resources and the
+                  per-service resources backing HTTPRoutes (the latter inherit these unless
+                  the NetworkResource sets its own Groups). Access policies target these
+                  groups to grant peers access to the routed resources.
+                items:
+                  properties:
+                    id:
+                      description: ID is the id of the group.
+                      type: string
+                    localRef:
+                      description: LocalReference is a reference to a group in the
+                        same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    name:
+                      description: Name is the name of the group.
+                      type: string
+                  type: object
+                  x-kubernetes-validations:
+                  - message: Exactly one of id, name, or localRef must be set
+                    rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
+                type: array
+              serviceCIDRs:
+                description: |-
+                  ServiceCIDRs are CIDRs routed into the NetBird network as subnet
+                  resources, so that addresses in these ranges (e.g. the cluster's IPv4
+                  and IPv6 Service CIDRs) are reachable through this router's routing
+                  peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP
+                  in one of these ranges and route to it via the matching subnet resource.
+                items:
+                  type: string
+                type: array
               workloadOverride:
                 description: WorkloadOverride contains configuration that will override
                   the default workload.
@@ -166,6 +211,25 @@ spec:
               routingPeerID:
                 description: RoutingPeerID is the id of the created routing peer.
                 type: string
+              serviceCIDRResources:
+                description: |-
+                  ServiceCIDRResources tracks the subnet network resources created for
+                  ServiceCIDRs, for idempotent reconcile and cleanup.
+                items:
+                  description: ServiceCIDRResource tracks the NetBird subnet resource
+                    created for a CIDR.
+                  properties:
+                    cidr:
+                      description: CIDR is the routed range.
+                      type: string
+                    resourceID:
+                      description: ResourceID is the NetBird network resource id.
+                      type: string
+                  required:
+                  - cidr
+                  - resourceID
+                  type: object
+                type: array
             type: object
         required:
         - spec

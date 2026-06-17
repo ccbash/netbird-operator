@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -188,6 +189,11 @@ func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	netRouter.Status.RoutingPeerID = routingPeerID
 	err = sp.Patch(ctx, netRouter, patch.WithStatusObservedGeneration{})
 	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Route the configured Service CIDRs into the network as subnet resources.
+	if err := r.reconcileServiceCIDRs(ctx, sp, netRouter, networkID); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -391,6 +397,71 @@ func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 15 * time.Minute}, nil
+}
+
+// reconcileServiceCIDRs ensures one NetBird subnet resource exists per
+// spec.ServiceCIDRs entry in the router's network, creating new ones, keeping
+// existing ones, and deleting resources for CIDRs that were removed. The
+// resource type (subnet) is derived by NetBird from the CIDR address. Resources
+// are created without groups, matching the per-service resources the HTTPRoute
+// controller creates; routing for reverse-proxy targets does not depend on
+// resource group membership.
+func (r *NetworkRouterReconciler) reconcileServiceCIDRs(ctx context.Context, sp *patch.SerialPatcher, netRouter *nbv1alpha1.NetworkRouter, networkID string) error {
+	groupIDs, err := netbirdutil.GetGroupIDs(ctx, r.Client, r.Netbird, netRouter.Spec.ResourceGroups, netRouter.Namespace)
+	if err != nil {
+		return err
+	}
+
+	existing := map[string]string{}
+	for _, rec := range netRouter.Status.ServiceCIDRResources {
+		existing[rec.CIDR] = rec.ResourceID
+	}
+
+	desired := map[string]bool{}
+	kept := make([]nbv1alpha1.ServiceCIDRResource, 0, len(netRouter.Spec.ServiceCIDRs))
+	for _, cidr := range netRouter.Spec.ServiceCIDRs {
+		desired[cidr] = true
+		req := api.NetworkResourceRequest{
+			Name:        fmt.Sprintf("%s-%s", netRouter.Name, cidrResourceSuffix(cidr)),
+			Description: new("service CIDR routed by " + netRouter.Name),
+			Address:     cidr,
+			Enabled:     true,
+			Groups:      groupIDs,
+		}
+		if id, ok := existing[cidr]; ok {
+			_, err := r.Netbird.Networks.Resources(networkID).Update(ctx, id, req)
+			if err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+			if err == nil {
+				kept = append(kept, nbv1alpha1.ServiceCIDRResource{CIDR: cidr, ResourceID: id})
+				continue
+			}
+			// tracked resource is gone — fall through and recreate it
+		}
+		resp, err := r.Netbird.Networks.Resources(networkID).Create(ctx, req)
+		if err != nil {
+			return err
+		}
+		kept = append(kept, nbv1alpha1.ServiceCIDRResource{CIDR: cidr, ResourceID: resp.Id})
+	}
+
+	// Delete resources for CIDRs no longer in spec.
+	for cidr, id := range existing {
+		if !desired[cidr] {
+			if err := r.Netbird.Networks.Resources(networkID).Delete(ctx, id); err != nil && !netbird.IsNotFound(err) {
+				return err
+			}
+		}
+	}
+
+	netRouter.Status.ServiceCIDRResources = kept
+	return sp.Patch(ctx, netRouter)
+}
+
+// cidrResourceSuffix turns a CIDR into a name-safe suffix for the resource.
+func cidrResourceSuffix(cidr string) string {
+	return strings.NewReplacer("/", "-", ":", "-", ".", "-").Replace(cidr)
 }
 
 func (r *NetworkRouterReconciler) reconcileDelete(ctx context.Context, sp *patch.SerialPatcher, netRouter *nbv1alpha1.NetworkRouter) (ctrl.Result, error) {

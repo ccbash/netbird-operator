@@ -131,6 +131,16 @@ spec:
                   RewriteRedirects, when true, rewrites Location headers in backend
                   responses to replace the backend address with the public domain.
                 type: boolean
+              routingMode:
+                description: |-
+                  RoutingMode selects how the targeted route's backends are exposed: "ip"
+                  (host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN
+                  domain resource with A/AAAA — dualstack via NetBird DNS). When unset the
+                  route defaults to ip.
+                enum:
+                - ip
+                - domain
+                type: string
               targetRefs:
                 description: |-
                   TargetRefs identify the HTTPRoute(s) this policy attaches to, following

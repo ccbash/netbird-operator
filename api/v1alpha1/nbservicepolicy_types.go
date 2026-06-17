@@ -62,6 +62,13 @@ type NBServicePolicySpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.all(t, t.kind == 'HTTPRoute' && (t.group == 'gateway.networking.k8s.io'))",message="targetRefs must reference HTTPRoute in group gateway.networking.k8s.io"
 	TargetRefs []gwv1.LocalPolicyTargetReference `json:"targetRefs"`
 
+	// RoutingMode selects how the targeted route's backends are exposed: "ip"
+	// (host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN
+	// domain resource with A/AAAA — dualstack via NetBird DNS). When unset the
+	// route defaults to ip.
+	// +optional
+	RoutingMode RoutingMode `json:"routingMode,omitempty"`
+
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
 	// auto-generated from AccessGroups. Requires an HTTP service.

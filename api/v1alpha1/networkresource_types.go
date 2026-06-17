@@ -7,6 +7,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// RoutingMode selects how a Service is exposed as a NetBird network resource.
+// +kubebuilder:validation:Enum=ip;domain
+type RoutingMode string
+
+const (
+	// RoutingModeIP routes the Service's ClusterIP directly: a host resource +
+	// host proxy target. DNS-independent; effectively IPv4 (the primary
+	// ClusterIP). This is the conservative default.
+	RoutingModeIP RoutingMode = "ip"
+	// RoutingModeDomain routes via the Service FQDN: a domain resource + domain
+	// proxy target, resolved through NetBird DNS (the A/AAAA records). Supports
+	// dualstack but depends on NetBird DNS resolution.
+	RoutingModeDomain RoutingMode = "domain"
+)
+
 // NetworkResourceSpec defines the desired state of NetworkResource.
 type NetworkResourceSpec struct {
 	// NetworkRouterRef is a reference to the network and router where the resource will be created.
@@ -19,6 +34,12 @@ type NetworkResourceSpec struct {
 	// Groups are references to groups that the resource will be a part of.
 	// +optional
 	Groups []GroupReference `json:"groups,omitempty"`
+
+	// RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN
+	// domain resource). Defaults to ip.
+	// +kubebuilder:default=ip
+	// +optional
+	RoutingMode RoutingMode `json:"routingMode,omitempty"`
 }
 
 // NetworkResourceStatus defines the observed state of NetworkResource.
@@ -45,9 +66,28 @@ type NetworkResourceStatus struct {
 	// +optional
 	DNSZoneID string `json:"dnsZoneID,omitempty"`
 
-	// DNSRecordID is the id of the created DNS record.
+	// DNSRecordID is the id of the legacy single A record created before
+	// dualstack support. Retained only so it can be cleaned up on upgrade;
+	// records are now tracked in DNSRecords.
 	// +optional
 	DNSRecordID string `json:"dnsRecordID,omitempty"`
+
+	// DNSRecords are the DNS records created for the resource — one A record
+	// per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP.
+	// +optional
+	DNSRecords []DNSRecordStatus `json:"dnsRecords,omitempty"`
+}
+
+// DNSRecordStatus tracks a single DNS record managed for a NetworkResource.
+type DNSRecordStatus struct {
+	// Type is the record type (A or AAAA).
+	Type string `json:"type"`
+
+	// Content is the record content (the ClusterIP).
+	Content string `json:"content"`
+
+	// ID is the Netbird DNS record id.
+	ID string `json:"id"`
 }
 
 // +kubebuilder:object:root=true

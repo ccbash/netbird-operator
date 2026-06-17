@@ -5,6 +5,7 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -19,6 +20,9 @@ type NetworkResourceSpecApplyConfiguration struct {
 	ServiceRef *v1.LocalObjectReference `json:"serviceRef,omitempty"`
 	// Groups are references to groups that the resource will be a part of.
 	Groups []GroupReferenceApplyConfiguration `json:"groups,omitempty"`
+	// RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN
+	// domain resource). Defaults to ip.
+	RoutingMode *apiv1alpha1.RoutingMode `json:"routingMode,omitempty"`
 }
 
 // NetworkResourceSpecApplyConfiguration constructs a declarative configuration of the NetworkResourceSpec type for use with
@@ -53,5 +57,13 @@ func (b *NetworkResourceSpecApplyConfiguration) WithGroups(values ...*GroupRefer
 		}
 		b.Groups = append(b.Groups, *values[i])
 	}
+	return b
+}
+
+// WithRoutingMode sets the RoutingMode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RoutingMode field is set to the value of the last call.
+func (b *NetworkResourceSpecApplyConfiguration) WithRoutingMode(value apiv1alpha1.RoutingMode) *NetworkResourceSpecApplyConfiguration {
+	b.RoutingMode = &value
 	return b
 }
