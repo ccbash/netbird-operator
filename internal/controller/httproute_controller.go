@@ -26,6 +26,7 @@ import (
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 	"github.com/netbirdio/kubernetes-operator/internal/gatewayutil"
 	"github.com/netbirdio/kubernetes-operator/internal/k8sutil"
+	"github.com/netbirdio/kubernetes-operator/internal/netbirdutil"
 	nbv1alpha1ac "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/api/v1alpha1"
 )
 
@@ -120,6 +121,14 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 
 	targets := buildTargets(logger, hr, svcIdx, resourceID, targetType)
 	if err := r.reconcileProxyServices(ctx, hr, targets, policies); err != nil {
+		// A proxy target can reference a NetworkResource that was deleted on the
+		// control plane: the resource ID in the NetworkResource status is then
+		// stale until its controller recreates it. Treat that as transient —
+		// back off and retry rather than logging an error with a stack trace.
+		if netbirdutil.IsTargetNotFound(err) {
+			logger.Info("reverse-proxy target resource not found yet; awaiting recreation", "gateway", gw.Name)
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
 		return ctrl.Result{}, err
 	}
 

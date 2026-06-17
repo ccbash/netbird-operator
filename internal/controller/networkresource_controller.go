@@ -152,7 +152,10 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+	// Re-reconcile periodically so a resource or DNS record deleted out of band
+	// on the NetBird control plane is detected and recreated without waiting for
+	// the controller's (multi-hour) resync.
+	return ctrl.Result{RequeueAfter: 15 * time.Minute}, nil
 }
 
 // markNotReady records a not-ready dependency condition on the NetworkResource
@@ -163,25 +166,31 @@ func (r *NetworkResourceReconciler) markNotReady(ctx context.Context, sp *patch.
 }
 
 // upsertResource creates or updates the NetBird network resource for netReq,
-// returning its ID. When an existing resource's derived type no longer matches
-// desiredType (the routing mode changed host<->domain), it is recreated: NetBird
-// derives the type from the address but won't change it on update, and the proxy
-// target rejects a stale type.
+// returning its ID. It reads the resource first and acts on the result, so a
+// resource that was deleted out of band becomes a clean create rather than a
+// failing PUT, and a routing-mode switch (host<->domain) is recreated rather
+// than updated: NetBird derives the type from the address but won't change it
+// on update, and the proxy target rejects a stale type.
 func (r *NetworkResourceReconciler) upsertResource(ctx context.Context, networkID, existingID string, netReq api.NetworkResourceRequest, desiredType api.NetworkResourceType) (string, error) {
 	resources := r.Netbird.Networks.Resources(networkID)
 	if existingID != "" {
-		netResp, err := resources.Update(ctx, existingID, netReq)
-		if err != nil && !netbird.IsNotFound(err) {
-			return "", err
-		}
-		if err == nil {
-			if netResp.Type == desiredType {
-				return netResp.Id, nil
+		existing, err := resources.Get(ctx, existingID)
+		switch {
+		case err == nil && existing.Type == desiredType:
+			netResp, err := resources.Update(ctx, existingID, netReq)
+			if err != nil {
+				return "", err
 			}
+			return netResp.Id, nil
+		case err == nil:
+			// Routing mode changed: delete the stale-typed resource, then create.
 			if err := resources.Delete(ctx, existingID); err != nil && !netbird.IsNotFound(err) {
 				return "", err
 			}
+		case !netbird.IsNotFound(err):
+			return "", err
 		}
+		// Not found (deleted out of band) — fall through to create.
 	}
 	netResp, err := resources.Create(ctx, netReq)
 	if err != nil {
