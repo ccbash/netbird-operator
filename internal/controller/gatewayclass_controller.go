@@ -48,8 +48,8 @@ func (r *GatewayClassReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Validate configuration.
 	message := func() string {
-		if gwc.Name != "netbird-public" && gwc.Name != "netbird-private" {
-			return "GatewayClass name must be netbird-public or netbird-private."
+		if gwc.Name != "netbird" {
+			return "GatewayClass name must be netbird."
 		}
 		if gwc.Spec.ParametersRef != nil {
 			return "Parameters references is not supported."

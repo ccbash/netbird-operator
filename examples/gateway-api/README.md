@@ -5,10 +5,11 @@ exposing Nginx through the NetBird reverse proxy.
 
 It shows the two exposure paths:
 
-* **`HTTPRoute` → `netbird-public` Gateway** — publishes a Service through the
-  NetBird reverse proxy (L7, public hostname). See `nginx.yaml`.
-* **`TCPRoute` → `netbird-private` Gateway** — exposes a Service as a private
-  network resource reachable only by mesh peers (L4). See `kubernetes.yaml`.
+* **`HTTPRoute` → `public` Gateway** (class `netbird`) — publishes a Service
+  through the NetBird reverse proxy (L7, public hostname). See `nginx.yaml`.
+* **`TCPRoute` → `private` Gateway** (class `netbird`) — exposes a Service as a
+  private network resource reachable only by mesh peers (L4). See
+  `kubernetes.yaml`.
 
 Build the image locally and load it into Kind.
 
