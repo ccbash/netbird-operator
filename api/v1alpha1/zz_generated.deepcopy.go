@@ -673,6 +673,13 @@ func (in *NetworkRouterSpec) DeepCopyInto(out *NetworkRouterSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ResourceGroups != nil {
+		in, out := &in.ResourceGroups, &out.ResourceGroups
+		*out = make([]GroupReference, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.WorkloadOverride != nil {
 		in, out := &in.WorkloadOverride, &out.WorkloadOverride
 		*out = new(WorkloadOverride)

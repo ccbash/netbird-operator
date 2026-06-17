@@ -21,6 +21,14 @@ type NetworkRouterSpec struct {
 	// +optional
 	ServiceCIDRs []string `json:"serviceCIDRs,omitempty"`
 
+	// ResourceGroups are the NetBird groups assigned to the resources created
+	// in this router's network — both the ServiceCIDRs subnet resources and the
+	// per-service resources backing HTTPRoutes (the latter inherit these unless
+	// the NetworkResource sets its own Groups). Access policies target these
+	// groups to grant peers access to the routed resources.
+	// +optional
+	ResourceGroups []GroupReference `json:"resourceGroups,omitempty"`
+
 	// Netbird client image.
 	// +optional
 	Image string `json:"image,omitempty"`

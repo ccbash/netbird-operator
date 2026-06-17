@@ -220,6 +220,7 @@ Group is the Schema for the groups API.
 _Appears in:_
 - [ClusterProxySpec](#clusterproxyspec)
 - [NetworkResourceSpec](#networkresourcespec)
+- [NetworkRouterSpec](#networkrouterspec)
 - [SetupKeySpec](#setupkeyspec)
 
 | Field | Description | Default | Validation |
@@ -439,6 +440,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `dnsZoneRef` _[DNSZoneReference](#dnszonereference)_ | DNSZoneRef is a reference to the DNS zone used to create records for resources. |  | Required: \{\} <br /> |
 | `serviceCIDRs` _string array_ | ServiceCIDRs are CIDRs routed into the NetBird network as subnet<br />resources, so that addresses in these ranges (e.g. the cluster's IPv4<br />and IPv6 Service CIDRs) are reachable through this router's routing<br />peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP<br />in one of these ranges and route to it via the matching subnet resource. |  | Optional: \{\} <br /> |
+| `resourceGroups` _[GroupReference](#groupreference) array_ | ResourceGroups are the NetBird groups assigned to the resources created<br />in this router's network — both the ServiceCIDRs subnet resources and the<br />per-service resources backing HTTPRoutes (the latter inherit these unless<br />the NetworkResource sets its own Groups). Access policies target these<br />groups to grant peers access to the routed resources. |  | Optional: \{\} <br /> |
 | `image` _string_ | Netbird client image. |  | Optional: \{\} <br /> |
 | `logLevel` _string_ | Log level for Netbird client. |  | Optional: \{\} <br /> |
 | `workloadOverride` _[WorkloadOverride](#workloadoverride)_ | WorkloadOverride contains configuration that will override the default workload. |  | Optional: \{\} <br /> |

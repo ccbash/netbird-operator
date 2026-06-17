@@ -407,6 +407,11 @@ func (r *NetworkRouterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // controller creates; routing for reverse-proxy targets does not depend on
 // resource group membership.
 func (r *NetworkRouterReconciler) reconcileServiceCIDRs(ctx context.Context, sp *patch.SerialPatcher, netRouter *nbv1alpha1.NetworkRouter, networkID string) error {
+	groupIDs, err := netbirdutil.GetGroupIDs(ctx, r.Client, r.Netbird, netRouter.Spec.ResourceGroups, netRouter.Namespace)
+	if err != nil {
+		return err
+	}
+
 	existing := map[string]string{}
 	for _, rec := range netRouter.Status.ServiceCIDRResources {
 		existing[rec.CIDR] = rec.ResourceID
@@ -421,7 +426,7 @@ func (r *NetworkRouterReconciler) reconcileServiceCIDRs(ctx context.Context, sp 
 			Description: new("service CIDR routed by " + netRouter.Name),
 			Address:     cidr,
 			Enabled:     true,
-			Groups:      []string{},
+			Groups:      groupIDs,
 		}
 		if id, ok := existing[cidr]; ok {
 			_, err := r.Netbird.Networks.Resources(networkID).Update(ctx, id, req)

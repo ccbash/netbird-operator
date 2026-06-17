@@ -17,6 +17,12 @@ type NetworkRouterSpecApplyConfiguration struct {
 	// peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP
 	// in one of these ranges and route to it via the matching subnet resource.
 	ServiceCIDRs []string `json:"serviceCIDRs,omitempty"`
+	// ResourceGroups are the NetBird groups assigned to the resources created
+	// in this router's network — both the ServiceCIDRs subnet resources and the
+	// per-service resources backing HTTPRoutes (the latter inherit these unless
+	// the NetworkResource sets its own Groups). Access policies target these
+	// groups to grant peers access to the routed resources.
+	ResourceGroups []GroupReferenceApplyConfiguration `json:"resourceGroups,omitempty"`
 	// Netbird client image.
 	Image *string `json:"image,omitempty"`
 	// Log level for Netbird client.
@@ -45,6 +51,19 @@ func (b *NetworkRouterSpecApplyConfiguration) WithDNSZoneRef(value *DNSZoneRefer
 func (b *NetworkRouterSpecApplyConfiguration) WithServiceCIDRs(values ...string) *NetworkRouterSpecApplyConfiguration {
 	for i := range values {
 		b.ServiceCIDRs = append(b.ServiceCIDRs, values[i])
+	}
+	return b
+}
+
+// WithResourceGroups adds the given value to the ResourceGroups field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ResourceGroups field.
+func (b *NetworkRouterSpecApplyConfiguration) WithResourceGroups(values ...*GroupReferenceApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithResourceGroups")
+		}
+		b.ResourceGroups = append(b.ResourceGroups, *values[i])
 	}
 	return b
 }

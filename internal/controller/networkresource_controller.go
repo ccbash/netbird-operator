@@ -116,7 +116,14 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	groupIDs, err := netbirdutil.GetGroupIDs(ctx, r.Client, r.Netbird, netResource.Spec.Groups, netResource.Namespace)
+	// Inherit the router's resource groups when the NetworkResource doesn't
+	// specify its own, so HTTPRoute-created resources (which set no groups) are
+	// still reachable by policy.
+	groupRefs := netResource.Spec.Groups
+	if len(groupRefs) == 0 {
+		groupRefs = netRouter.Spec.ResourceGroups
+	}
+	groupIDs, err := netbirdutil.GetGroupIDs(ctx, r.Client, r.Netbird, groupRefs, netResource.Namespace)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -148,7 +155,17 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				return "", err
 			}
 			if err == nil {
-				return netResp.Id, nil
+				// NetBird derives the resource type from the address but does
+				// not change it on update — a resource created earlier as a host
+				// (ClusterIP) stays host even after switching to an FQDN address,
+				// and a domain proxy target then rejects it. Recreate it in that
+				// case so the type matches the (domain) address.
+				if netResp.Type == api.NetworkResourceTypeDomain {
+					return netResp.Id, nil
+				}
+				if err := r.Netbird.Networks.Resources(netRouter.Status.NetworkID).Delete(ctx, netResource.Status.ResourceID); err != nil && !netbird.IsNotFound(err) {
+					return "", err
+				}
 			}
 		}
 		netResp, err := r.Netbird.Networks.Resources(netRouter.Status.NetworkID).Create(ctx, netReq)
