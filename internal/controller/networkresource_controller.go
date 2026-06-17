@@ -4,6 +4,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -36,6 +37,11 @@ type NetworkResourceReconciler struct {
 
 	Netbird *netbird.Client
 }
+
+// errResourceInUse marks the case where a NetBird network resource cannot be
+// deleted (to be recreated for a routing-mode change) because a reverse-proxy
+// service still targets it. The reconcile backs off until the proxy releases it.
+var errResourceInUse = errors.New("network resource is in use by a reverse-proxy")
 
 // +kubebuilder:rbac:groups=netbird.io,resources=networkresources,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=netbird.io,resources=networkresources/status,verbs=get;update;patch
@@ -133,6 +139,13 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	resourceID, err := r.upsertResource(ctx, netRouter.Status.NetworkID, netResource.Status.ResourceID, netReq, desiredType)
 	if err != nil {
+		if errors.Is(err, errResourceInUse) {
+			// A routing-mode switch needs the resource recreated, but a
+			// reverse-proxy still targets it. Back off until the proxy releases
+			// it instead of erroring with a stack trace every reconcile.
+			ctrl.LoggerFrom(ctx).Info("network resource in use by a reverse-proxy; awaiting release before routing-mode change", "resourceID", netResource.Status.ResourceID)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	netResource.Status.NetworkID = netRouter.Status.NetworkID
@@ -185,7 +198,13 @@ func (r *NetworkResourceReconciler) upsertResource(ctx context.Context, networkI
 			return netResp.Id, nil
 		case err == nil:
 			// Routing mode changed: delete the stale-typed resource, then create.
+			// NetBird refuses to delete a resource still targeted by a reverse-proxy
+			// service (400/409); surface that distinctly so the caller backs off
+			// until the proxy releases it.
 			if err := resources.Delete(ctx, existingID); err != nil && !netbird.IsNotFound(err) {
+				if netbirdutil.IsConflict(err) {
+					return "", fmt.Errorf("%w: %v", errResourceInUse, err)
+				}
 				return "", err
 			}
 		case !netbird.IsNotFound(err):
