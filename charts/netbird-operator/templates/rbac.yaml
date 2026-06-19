@@ -10,8 +10,11 @@ rules:
   resources:
   - setupkeys
   - groups
-  - networkrouters
+  - networks
   - networkresources
+  - dnszones
+  - dnsrecords
+  - reverseproxyservices
   - sidecarprofiles
   - clusterproxies
   verbs:
@@ -25,26 +28,13 @@ rules:
 - apiGroups:
   - netbird.io
   resources:
-  - nbservicepolicies
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - netbird.io
-  resources:
-  - nbservicepolicies/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - netbird.io
-  resources:
   - setupkeys/status
   - groups/status
-  - networkrouters/status
+  - networks/status
   - networkresources/status
+  - dnszones/status
+  - dnsrecords/status
+  - reverseproxyservices/status
   - sidecarprofiles/status
   - clusterproxies/status
   verbs:
@@ -56,8 +46,11 @@ rules:
   resources:
   - setupkeys/finalizers
   - groups/finalizers
-  - networkrouters/finalizers
+  - networks/finalizers
   - networkresources/finalizers
+  - dnszones/finalizers
+  - dnsrecords/finalizers
+  - reverseproxyservices/finalizers
   - sidecarprofiles/finalizers
   verbs:
   - update
@@ -156,6 +149,11 @@ rules:
   verbs:
     - update
     - patch
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources:
+    - gateways/finalizers
+  verbs:
+    - update
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

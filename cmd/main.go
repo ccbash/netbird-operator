@@ -255,6 +255,20 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		return fmt.Errorf("setup ClusterProxy controller: %w", err)
 	}
 
+	// Layer-1 NetBird-mirror controllers.
+	if err := controller.NewNetworkReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("network")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup Network controller: %w", err)
+	}
+	if err := controller.NewNetworkResourceReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("networkresource")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup NetworkResource controller: %w", err)
+	}
+	if err := controller.NewDNSZoneReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("dnszone")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup DNSZone controller: %w", err)
+	}
+	if err := controller.NewDNSRecordReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("dnsrecord")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup DNSRecord controller: %w", err)
+	}
+
 	if !gatewayAPIEnabled {
 		return nil
 	}
@@ -263,10 +277,30 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup GatewayClass controller: %w", err)
 	}
-	// Layer-1 mirror controllers (Network, NetworkResource, DNSZone, DNSRecord,
-	// ReverseProxyService) and the Gateway-API translation controllers
-	// (Gateway, HTTPRoute, TCPRoute) are registered here — re-added in the
-	// v0.11.x redesign. See docs/architecture.md.
+	if err := (&controller.GatewayReconciler{
+		Client:        mgr.GetClient(),
+		Netbird:       nbClient,
+		ManagementURL: managementURL,
+		ClientImage:   netbirdClientImage,
+		Recorder:      mgr.GetEventRecorderFor("gateway"),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup Gateway controller: %w", err)
+	}
+	if err := (&controller.HTTPRouteReconciler{
+		Client:   mgr.GetClient(),
+		Recorder: mgr.GetEventRecorderFor("httproute"),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup HTTPRoute controller: %w", err)
+	}
+	if err := (&controller.TCPRouteReconciler{
+		Client:   mgr.GetClient(),
+		Recorder: mgr.GetEventRecorderFor("tcproute"),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup TCPRoute controller: %w", err)
+	}
+	if err := controller.NewReverseProxyServiceReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("reverseproxyservice")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup ReverseProxyService controller: %w", err)
+	}
 	return nil
 }
 
