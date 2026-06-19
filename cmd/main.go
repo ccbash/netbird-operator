@@ -246,22 +246,6 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup Group controller: %w", err)
 	}
-	if err := (&controller.NetworkRouterReconciler{
-		Client:        mgr.GetClient(),
-		Netbird:       nbClient,
-		ClientImage:   netbirdClientImage,
-		ManagementURL: managementURL,
-		Recorder:      mgr.GetEventRecorderFor("networkrouter"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup NetworkRouter controller: %w", err)
-	}
-	if err := (&controller.NetworkResourceReconciler{
-		Client:   mgr.GetClient(),
-		Netbird:  nbClient,
-		Recorder: mgr.GetEventRecorderFor("networkresource"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup NetworkResource controller: %w", err)
-	}
 	if err := (&controller.ClusterProxyReconciler{
 		Client:        mgr.GetClient(),
 		ApiKey:        netbirdAPIKey,
@@ -279,29 +263,10 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup GatewayClass controller: %w", err)
 	}
-	if err := (&controller.GatewayReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup Gateway controller: %w", err)
-	}
-	if err := (&controller.HTTPRouteReconciler{
-		Client:   mgr.GetClient(),
-		Netbird:  nbClient,
-		Recorder: mgr.GetEventRecorderFor("httproute"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup HTTPRoute controller: %w", err)
-	}
-	if err := (&controller.TCPRouteReconciler{
-		Client:   mgr.GetClient(),
-		Recorder: mgr.GetEventRecorderFor("tcproute"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup TCPRoute controller: %w", err)
-	}
-	if err := (&controller.NBServicePolicyReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup NBServicePolicy controller: %w", err)
-	}
+	// Layer-1 mirror controllers (Network, NetworkResource, DNSZone, DNSRecord,
+	// ReverseProxyService) and the Gateway-API translation controllers
+	// (Gateway, HTTPRoute, TCPRoute) are registered here — re-added in the
+	// v0.11.x redesign. See docs/architecture.md.
 	return nil
 }
 
