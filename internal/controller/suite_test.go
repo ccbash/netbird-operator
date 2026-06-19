@@ -5,7 +5,9 @@ package controller
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -17,6 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 )
@@ -50,11 +54,17 @@ var _ = BeforeSuite(func() {
 	err = nbv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	Expect(gwv1.Install(scheme.Scheme)).To(Succeed())
+	Expect(gwv1alpha2.Install(scheme.Scheme)).To(Succeed())
+
 	// +kubebuilder:scaffold:scheme
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "charts", "netbird-operator", "crds")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "charts", "netbird-operator", "crds"),
+			gatewayAPICRDPath(),
+		},
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -73,6 +83,15 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 })
+
+// gatewayAPICRDPath returns the directory of the gateway-api module's
+// experimental CRDs (HTTPRoute, TCPRoute, Gateway, GatewayClass, …) so envtest
+// can install them, resolved from the module cache to track the pinned version.
+func gatewayAPICRDPath() string {
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "sigs.k8s.io/gateway-api").Output()
+	Expect(err).NotTo(HaveOccurred())
+	return filepath.Join(strings.TrimSpace(string(out)), "config", "crd", "experimental")
+}
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
