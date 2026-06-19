@@ -33,12 +33,16 @@ func pathPrefixFor(rule gwv1.HTTPRouteRule) *string {
 
 // sortTargets orders targets deterministically so the rendered ServiceRequest
 // is stable across reconciles (otherwise map iteration order would make every
-// reconcile look like a change).
+// reconcile look like a change). Cluster targets share one TargetId (the proxy
+// cluster) and differ by Host, so Host is part of the key.
 func sortTargets(targets []api.ServiceTarget) {
 	sort.Slice(targets, func(i, j int) bool {
 		a, b := targets[i], targets[j]
 		if a.TargetId != b.TargetId {
 			return a.TargetId < b.TargetId
+		}
+		if derefStr(a.Host) != derefStr(b.Host) {
+			return derefStr(a.Host) < derefStr(b.Host)
 		}
 		if derefStr(a.Path) != derefStr(b.Path) {
 			return derefStr(a.Path) < derefStr(b.Path)
@@ -74,6 +78,7 @@ type proxyState struct {
 
 type targetState struct {
 	enabled    bool
+	host       string
 	path       string
 	port       int
 	protocol   string
@@ -139,6 +144,7 @@ func targetStates(targets []api.ServiceTarget) []targetState {
 	for _, t := range targets {
 		out = append(out, targetState{
 			enabled:    t.Enabled,
+			host:       derefStr(t.Host),
 			path:       derefStr(t.Path),
 			port:       t.Port,
 			protocol:   string(t.Protocol),
@@ -149,6 +155,9 @@ func targetStates(targets []api.ServiceTarget) []targetState {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].targetID != out[j].targetID {
 			return out[i].targetID < out[j].targetID
+		}
+		if out[i].host != out[j].host {
+			return out[i].host < out[j].host
 		}
 		if out[i].path != out[j].path {
 			return out[i].path < out[j].path

@@ -18,9 +18,7 @@ const (
 	gatewayPoll = 5 * time.Second
 	// backendRetry retries while a backend Service is missing.
 	backendRetry = 30 * time.Second
-	// quickRetry awaits a just-applied object becoming visible in the cache.
-	quickRetry = 1 * time.Second
 	// cleanupRetry retries a deletion blocked because the object is still
-	// referenced (a group in use, a proxy target not yet repointed).
+	// referenced (a group in use).
 	cleanupRetry = time.Minute
 )

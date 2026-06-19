@@ -16,28 +16,29 @@ import (
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 )
 
-func TestResolveRoutingMode(t *testing.T) {
+func TestResolveProxyClusterAndUpstream(t *testing.T) {
 	t.Parallel()
 
-	// No policies -> ip routing, host target type (the safe default).
-	mode, targetType := resolveRoutingMode(nil)
-	require.Equal(t, nbv1alpha1.RoutingModeIP, mode)
-	require.Equal(t, api.ServiceTargetTargetTypeHost, targetType)
+	// Defaults: no cluster, hostname upstream.
+	require.Equal(t, "", resolveProxyCluster(nil))
+	require.Equal(t, nbv1alpha1.UpstreamModeHostname, resolveUpstream(nil))
 
-	// A policy with an empty routingMode leaves the default untouched.
-	mode, targetType = resolveRoutingMode([]nbv1alpha1.NBServicePolicy{{}})
-	require.Equal(t, nbv1alpha1.RoutingModeIP, mode)
-	require.Equal(t, api.ServiceTargetTargetTypeHost, targetType)
+	// Policies are newest-first; the oldest (last) non-empty value wins.
+	policies := []nbv1alpha1.NBServicePolicy{
+		{Spec: nbv1alpha1.NBServicePolicySpec{ProxyCluster: "newer.example", Upstream: nbv1alpha1.UpstreamModeIP}},
+		{Spec: nbv1alpha1.NBServicePolicySpec{ProxyCluster: "gate.ccbash.de", Upstream: nbv1alpha1.UpstreamModeHostname}},
+	}
+	require.Equal(t, "gate.ccbash.de", resolveProxyCluster(policies))
+	require.Equal(t, nbv1alpha1.UpstreamModeHostname, resolveUpstream(policies))
 
-	// routingMode: domain selects a domain resource + domain target type.
-	mode, targetType = resolveRoutingMode([]nbv1alpha1.NBServicePolicy{
-		{Spec: nbv1alpha1.NBServicePolicySpec{RoutingMode: nbv1alpha1.RoutingModeDomain}},
-	})
-	require.Equal(t, nbv1alpha1.RoutingModeDomain, mode)
-	require.Equal(t, api.ServiceTargetTargetTypeDomain, targetType)
+	// An empty field doesn't override an earlier non-empty value.
+	require.Equal(t, nbv1alpha1.UpstreamModeIP, resolveUpstream([]nbv1alpha1.NBServicePolicy{
+		{Spec: nbv1alpha1.NBServicePolicySpec{Upstream: nbv1alpha1.UpstreamModeIP}},
+		{},
+	}))
 }
 
-func TestBuildTargets(t *testing.T) {
+func TestBuildClusterTargets(t *testing.T) {
 	t.Parallel()
 
 	prefix := gwv1.PathMatchPathPrefix
@@ -63,30 +64,27 @@ func TestBuildTargets(t *testing.T) {
 		"notify": {ObjectMeta: metav1.ObjectMeta{Name: "notify"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}}}},
 		"app":    {ObjectMeta: metav1.ObjectMeta{Name: "app"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}}},
 	}
-	resourceID := map[string]string{"notify": "res-notify", "app": "res-app"}
+	hostByService := map[string]string{"notify": "notify-ns.zone", "app": "app-ns.zone"}
 
-	targets := buildTargets(logr.Discard(), hr, svcIdx, resourceID, api.ServiceTargetTargetTypeHost)
+	targets := buildClusterTargets(logr.Discard(), hr, svcIdx, hostByService, "cluster-1")
 	require.Len(t, targets, 2)
 
-	byID := map[string]api.ServiceTarget{}
+	byHost := map[string]api.ServiceTarget{}
 	for _, tgt := range targets {
-		byID[tgt.TargetId] = tgt
+		byHost[derefStr(tgt.Host)] = tgt
+		// Every target is a cluster target pointing at the proxy cluster.
+		require.Equal(t, api.ServiceTargetTargetTypeCluster, tgt.TargetType)
+		require.Equal(t, "cluster-1", tgt.TargetId)
 	}
 
-	// Path prefix is carried onto the matching backend's target.
-	require.Equal(t, "/push/", derefStr(byID["res-notify"].Path))
-	require.Equal(t, 80, byID["res-notify"].Port)
-	require.Equal(t, api.ServiceTargetTargetTypeHost, byID["res-notify"].TargetType)
+	// Path prefix + port carried onto the matching backend's target.
+	require.Equal(t, "/push/", derefStr(byHost["notify-ns.zone"].Path))
+	require.Equal(t, 80, byHost["notify-ns.zone"].Port)
 
-	// Missing backendRef port falls back to the Service's first port.
-	require.Nil(t, byID["res-app"].Path)
-	require.Equal(t, 8080, byID["res-app"].Port)
-
-	// Domain routing flips every target's type to domain.
-	domainTargets := buildTargets(logr.Discard(), hr, svcIdx, resourceID, api.ServiceTargetTargetTypeDomain)
-	for _, tgt := range domainTargets {
-		require.Equal(t, api.ServiceTargetTargetTypeDomain, tgt.TargetType)
-	}
+	// Missing backendRef port falls back to the Service's first port; catch-all
+	// rule has no path.
+	require.Nil(t, byHost["app-ns.zone"].Path)
+	require.Equal(t, 8080, byHost["app-ns.zone"].Port)
 }
 
 func TestResourceAddressFor(t *testing.T) {

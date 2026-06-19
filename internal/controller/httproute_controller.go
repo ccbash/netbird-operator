@@ -4,25 +4,20 @@ package controller
 
 import (
 	"context"
-	"strings"
+	"errors"
 
-	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
@@ -32,7 +27,6 @@ import (
 	"github.com/netbirdio/kubernetes-operator/internal/gatewayutil"
 	"github.com/netbirdio/kubernetes-operator/internal/k8sutil"
 	"github.com/netbirdio/kubernetes-operator/internal/netbirdutil"
-	nbv1alpha1ac "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/api/v1alpha1"
 )
 
 type HTTPRouteReconciler struct {
@@ -73,9 +67,9 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 // reconcileParent reconciles the route against a single parent Gateway: it
-// ensures a NetworkResource per backend Service and an up-to-date reverse-proxy
-// service per hostname. A zero Result means "this parent is done, continue";
-// a non-zero Result asks the caller to requeue.
+// upserts an up-to-date reverse-proxy service per hostname whose `cluster`
+// targets dial the backend Services. A zero Result means "this parent is done,
+// continue"; a non-zero Result asks the caller to requeue.
 func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.Logger, sp *patch.SerialPatcher, hr *gwv1.HTTPRoute, parent gwv1.ParentReference) (ctrl.Result, error) {
 	gw, err := gatewayutil.GetParentGateway(ctx, r.Client, parent, hr.Namespace, GatewayControllerName)
 	if err != nil {
@@ -117,43 +111,43 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 		return ctrl.Result{RequeueAfter: backendRetry}, nil
 	}
 
-	// Resolve the attached NBServicePolicies up front. routingMode decides
-	// whether each backend is exposed as a host (ClusterIP) or domain (FQDN)
-	// resource + matching proxy target; it defaults to ip (oldest policy
-	// wins, matching applyServicePolicies).
+	// The attached NBServicePolicies carry the proxy cluster and the upstream
+	// form (newest-first; the oldest non-empty wins, matching applyServicePolicies).
 	policies, err := r.servicePoliciesFor(ctx, hr)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	routingMode, targetType := resolveRoutingMode(policies)
 
-	if err := r.ensureNetworkResources(ctx, hr, netRouter, svcIdx, routingMode); err != nil {
-		return ctrl.Result{}, err
+	clusterAddr := resolveProxyCluster(policies)
+	if clusterAddr == "" {
+		recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonDependencyNotReady,
+			"No proxyCluster set on an attached NBServicePolicy; cannot expose over HTTP")
+		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 	}
-
-	resourceID, ready, err := r.resolveResourceIDs(ctx, hr, svcIdx)
+	cluster, err := netbirdutil.GetProxyClusterByAddress(ctx, r.Netbird, clusterAddr)
+	if errors.Is(err, netbirdutil.ErrProxyClusterNotFound) {
+		recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonDependencyNotReady,
+			"Reverse-proxy cluster %q not found", clusterAddr)
+		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if !ready {
-		return ctrl.Result{RequeueAfter: quickRetry}, nil
-	}
 
-	targets := buildTargets(logger, hr, svcIdx, resourceID, targetType)
-	if err := r.reconcileProxyServices(ctx, hr, targets, policies); err != nil {
-		// A proxy target can reference a NetworkResource that was deleted on the
-		// control plane (target not found), or — during a routing-mode switch —
-		// still reference the old-typed resource while the new target type is
-		// applied (target-type mismatch). Both are transient: the NetworkResource
-		// controller recreates/repoints the resource and the watch re-reconciles
-		// this route. Back off and retry rather than logging an error + stack
-		// trace each time.
-		if netbirdutil.IsTargetNotFound(err) || netbirdutil.IsTargetTypeMismatch(err) {
-			logger.Info("reverse-proxy target not ready yet; awaiting resource update", "gateway", gw.Name)
-			recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonProxyTargetMissing,
-				"Reverse-proxy target not ready yet (resource recreating/repointing); retrying")
+	// Resolve each backend's proxy-target Host: the Service FQDN (default — the
+	// proxy resolves it via NetBird DNS, IPv4/IPv6 transparent) or the ClusterIP.
+	hostByService, err := r.upstreamHosts(ctx, netRouter, svcIdx, resolveUpstream(policies))
+	if err != nil {
+		if errors.Is(err, netbirdutil.ErrZoneNotFound) {
+			recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonDependencyNotReady,
+				"Referenced NetworkRouter DNS zone does not exist yet")
 			return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 		}
+		return ctrl.Result{}, err
+	}
+
+	targets := buildClusterTargets(logger, hr, svcIdx, hostByService, cluster.Id)
+	if err := r.reconcileProxyServices(ctx, hr, targets, policies); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -162,6 +156,57 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 		return ctrl.Result{RequeueAfter: backendRetry}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// resolveProxyCluster folds the attached policies to a single proxy-cluster
+// address (newest-first; the oldest non-empty wins).
+func resolveProxyCluster(policies []nbv1alpha1.NBServicePolicy) string {
+	var addr string
+	for i := range policies {
+		if policies[i].Spec.ProxyCluster != "" {
+			addr = policies[i].Spec.ProxyCluster
+		}
+	}
+	return addr
+}
+
+// resolveUpstream folds the attached policies to a single upstream form,
+// defaulting to hostname (newest-first; the oldest non-empty wins).
+func resolveUpstream(policies []nbv1alpha1.NBServicePolicy) nbv1alpha1.UpstreamMode {
+	mode := nbv1alpha1.UpstreamModeHostname
+	for i := range policies {
+		if policies[i].Spec.Upstream != "" {
+			mode = policies[i].Spec.Upstream
+		}
+	}
+	return mode
+}
+
+// upstreamHosts returns the reverse-proxy target Host for each backend Service.
+// For the hostname form it publishes the Service's A/AAAA records under its FQDN
+// (so the proxy resolves it via NetBird DNS, IPv4/IPv6 transparent) and uses the
+// FQDN; for the ip form it uses the ClusterIP directly (no DNS).
+func (r *HTTPRouteReconciler) upstreamHosts(ctx context.Context, netRouter *nbv1alpha1.NetworkRouter, svcIdx map[string]corev1.Service, upstream nbv1alpha1.UpstreamMode) (map[string]string, error) {
+	hosts := map[string]string{}
+	if upstream == nbv1alpha1.UpstreamModeIP {
+		for name, svc := range svcIdx {
+			hosts[name] = svc.Spec.ClusterIP
+		}
+		return hosts, nil
+	}
+	zone, err := netbirdutil.GetDNSZoneByName(ctx, r.Netbird, netRouter.Spec.DNSZoneRef.Name)
+	if err != nil {
+		return nil, err
+	}
+	for name := range svcIdx {
+		svc := svcIdx[name]
+		fqdn := serviceFQDN(svc.Name, svc.Namespace, zone.Domain)
+		if _, err := reconcileZoneRecords(ctx, r.Netbird, zone.Id, fqdn, clusterIPsOf(&svc)); err != nil {
+			return nil, err
+		}
+		hosts[name] = fqdn
+	}
+	return hosts, nil
 }
 
 // missingBackendNames returns the distinct backendRef Service names that are not
@@ -196,77 +241,11 @@ func (r *HTTPRouteReconciler) indexBackendServices(ctx context.Context, hr *gwv1
 	return collectBackendServices(ctx, r.Client, hr.Namespace, names, tolerateMissing)
 }
 
-// resolveRoutingMode folds the attached policies down to a single routing mode
-// (oldest non-empty policy wins) and the matching proxy target type.
-func resolveRoutingMode(policies []nbv1alpha1.NBServicePolicy) (nbv1alpha1.RoutingMode, api.ServiceTargetTargetType) {
-	routingMode := nbv1alpha1.RoutingModeIP
-	for i := range policies {
-		if policies[i].Spec.RoutingMode != "" {
-			routingMode = policies[i].Spec.RoutingMode
-		}
-	}
-	if routingMode == nbv1alpha1.RoutingModeDomain {
-		return routingMode, api.ServiceTargetTargetTypeDomain
-	}
-	return routingMode, api.ServiceTargetTargetTypeHost
-}
-
-// ensureNetworkResources applies one NetworkResource per backend Service, owned
-// by both the Service (controller ref) and the route.
-func (r *HTTPRouteReconciler) ensureNetworkResources(ctx context.Context, hr *gwv1.HTTPRoute, netRouter *nbv1alpha1.NetworkRouter, svcIdx map[string]corev1.Service, routingMode nbv1alpha1.RoutingMode) error {
-	for _, svc := range svcIdx {
-		controllerRef, err := k8sutil.ControllerReference(&svc, r.Scheme())
-		if err != nil {
-			return err
-		}
-		controllerRef = controllerRef.WithBlockOwnerDeletion(false)
-		ownerRef, err := k8sutil.OwnerReference(hr, r.Scheme())
-		if err != nil {
-			return err
-		}
-		netResourceAC := nbv1alpha1ac.NetworkResource(svc.Name, svc.Namespace).
-			WithOwnerReferences(controllerRef, ownerRef).
-			WithSpec(
-				nbv1alpha1ac.NetworkResourceSpec().
-					WithNetworkRouterRef(nbv1alpha1ac.CrossNamespaceReference().WithName(netRouter.Name).WithNamespace(netRouter.Namespace)).
-					WithServiceRef(corev1.LocalObjectReference{Name: svc.Name}).
-					WithRoutingMode(routingMode),
-			)
-		if err := r.Client.Apply(ctx, netResourceAC, client.ForceOwnership); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// resolveResourceIDs maps each Service to its NetworkResource ID. ready is false
-// if any resource has not reconciled yet, signalling the caller to requeue.
-func (r *HTTPRouteReconciler) resolveResourceIDs(ctx context.Context, hr *gwv1.HTTPRoute, svcIdx map[string]corev1.Service) (map[string]string, bool, error) {
-	resourceID := map[string]string{}
-	for name := range svcIdx {
-		netResource := &nbv1alpha1.NetworkResource{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: hr.Namespace},
-		}
-		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(netResource), netResource); err != nil {
-			// Just applied by ensureNetworkResources; a not-yet-visible resource
-			// is a transient state — requeue rather than error.
-			if kerrors.IsNotFound(err) {
-				return nil, false, nil
-			}
-			return nil, false, err
-		}
-		if !conditions.Has(netResource, nbv1alpha1.ReadyCondition) {
-			return nil, false, nil
-		}
-		resourceID[name] = netResource.Status.ResourceID
-	}
-	return resourceID, true, nil
-}
-
-// buildTargets builds one proxy target per backendRef, carrying the rule's path
-// prefix so path-based routes (e.g. /push/ -> notify-push, / -> app) resolve to
-// the right backend instead of being flattened to pathless targets.
-func buildTargets(logger logr.Logger, hr *gwv1.HTTPRoute, svcIdx map[string]corev1.Service, resourceID map[string]string, targetType api.ServiceTargetTargetType) []api.ServiceTarget {
+// buildClusterTargets builds one reverse-proxy `cluster` target per backendRef:
+// the proxy cluster (TargetId) dials the backend Host (FQDN or ClusterIP) via
+// its embedded NetBird client. The rule's path prefix is carried so path-based
+// routes (e.g. /push/ -> notify-push, / -> app) resolve to the right backend.
+func buildClusterTargets(logger logr.Logger, hr *gwv1.HTTPRoute, svcIdx map[string]corev1.Service, hostByService map[string]string, clusterID string) []api.ServiceTarget {
 	targets := []api.ServiceTarget{}
 	for _, rule := range hr.Spec.Rules {
 		path := pathPrefixFor(rule)
@@ -282,15 +261,15 @@ func buildTargets(logger logr.Logger, hr *gwv1.HTTPRoute, svcIdx map[string]core
 				logger.Info("backendRef omits port; using the Service's first port",
 					"service", svc.Name, "port", svc.Spec.Ports[0].Port)
 			}
+			host := hostByService[svc.Name]
 			targets = append(targets, api.ServiceTarget{
-				Enabled:  true,
-				Path:     path,
-				Port:     backendPortFor(svc, refPort),
-				TargetId: resourceID[svc.Name],
-				Protocol: api.ServiceTargetProtocolHttp,
-				// Must match the backend resource's type, which follows the
-				// route's routing mode (host for ip, domain for domain).
-				TargetType: targetType,
+				Enabled:    true,
+				Host:       &host,
+				Path:       path,
+				Port:       backendPortFor(svc, refPort),
+				Protocol:   api.ServiceTargetProtocolHttp,
+				TargetId:   clusterID,
+				TargetType: api.ServiceTargetTargetTypeCluster,
 			})
 		}
 	}
@@ -383,24 +362,63 @@ func (r *HTTPRouteReconciler) reconcileDelete(ctx context.Context, sp *patch.Ser
 		}
 	}
 
-	// Detach the route from each backend Service's NetworkResource, deleting the
-	// resource when this route was its last owner.
-	svcIdx, err := r.indexBackendServices(ctx, hr, true)
-	if err != nil {
+	// Delete the DNS records published for each backend (best-effort).
+	if err := r.cleanupRouteDNS(ctx, hr); err != nil {
 		return ctrl.Result{}, err
-	}
-	for _, svc := range svcIdx {
-		if err := detachNetworkResource(ctx, r.Client, r.Scheme(), hr, svc); err != nil {
-			return ctrl.Result{}, err
-		}
 	}
 
 	controllerutil.RemoveFinalizer(hr, k8sutil.Finalizer("httproute"))
-	err = sp.Patch(ctx, hr)
-	if err != nil {
+	if err := sp.Patch(ctx, hr); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
+}
+
+// cleanupRouteDNS removes the A/AAAA records published for the route's backends.
+// It resolves the zone via a parent Gateway's NetworkRouter; if the Gateway or
+// router is already gone the records are left for manual cleanup rather than
+// blocking deletion.
+func (r *HTTPRouteReconciler) cleanupRouteDNS(ctx context.Context, hr *gwv1.HTTPRoute) error {
+	svcIdx, err := r.indexBackendServices(ctx, hr, true)
+	if err != nil {
+		return err
+	}
+	if len(svcIdx) == 0 {
+		return nil
+	}
+	for _, parent := range hr.Spec.ParentRefs {
+		gw, err := gatewayutil.GetParentGateway(ctx, r.Client, parent, hr.Namespace, GatewayControllerName)
+		if kerrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if gw == nil {
+			continue
+		}
+		netRouter, err := gatewayutil.GetGatewayNetworkRouter(ctx, r.Client, gw)
+		if kerrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		zone, err := netbirdutil.GetDNSZoneByName(ctx, r.Netbird, netRouter.Spec.DNSZoneRef.Name)
+		if errors.Is(err, netbirdutil.ErrZoneNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, svc := range svcIdx {
+			fqdn := serviceFQDN(svc.Name, svc.Namespace, zone.Domain)
+			if err := deleteZoneRecords(ctx, r.Netbird, zone.Id, fqdn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // backendPortFor resolves the port a proxy target should connect to: the
@@ -428,48 +446,5 @@ func (r *HTTPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			// Only spec changes (and create/delete) should re-reconcile the
 			// route; ignore the status-only writes from the policy controller.
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&nbv1alpha1.NetworkResource{},
-			handler.EnqueueRequestsFromMapFunc(httpRoutesForNetworkResource),
-			// Re-reconcile only when the resource ID changes, so the proxy target
-			// is repointed at a recreated resource (e.g. after a routing-mode
-			// switch) without churning on every unrelated status write.
-			builder.WithPredicates(networkResourceIDChanged)).
 		Complete(r)
-}
-
-// httpRoutesForNetworkResource maps a NetworkResource event to reconcile
-// requests for the HTTPRoute(s) that own it (the HTTPRoute controller records
-// itself as a non-controller owner). It repoints the reverse-proxy after a
-// routing-mode switch recreates the resource under a new ID: the route rebuilds
-// its targets against the new ID, which finally lets the old resource drain.
-func httpRoutesForNetworkResource(_ context.Context, obj client.Object) []reconcile.Request {
-	var reqs []reconcile.Request
-	for _, ref := range obj.GetOwnerReferences() {
-		if ref.Kind != httpRouteKind {
-			continue
-		}
-		if group, _, _ := strings.Cut(ref.APIVersion, "/"); group != gatewayAPIGroup {
-			continue
-		}
-		reqs = append(reqs, reconcile.Request{
-			NamespacedName: types.NamespacedName{Namespace: obj.GetNamespace(), Name: ref.Name},
-		})
-	}
-	return reqs
-}
-
-// networkResourceIDChanged passes a NetworkResource update only when its
-// resource ID changes (or it is created), so the HTTPRoute controller isn't
-// re-run on every status patch (DNS records, conditions, drained stale IDs).
-var networkResourceIDChanged = predicate.Funcs{
-	CreateFunc: func(event.CreateEvent) bool { return true },
-	DeleteFunc: func(event.DeleteEvent) bool { return false },
-	UpdateFunc: func(e event.UpdateEvent) bool {
-		oldR, ok1 := e.ObjectOld.(*nbv1alpha1.NetworkResource)
-		newR, ok2 := e.ObjectNew.(*nbv1alpha1.NetworkResource)
-		if !ok1 || !ok2 {
-			return false
-		}
-		return oldR.Status.ResourceID != newR.Status.ResourceID
-	},
 }

@@ -13,6 +13,13 @@ import (
 // dnsRecordTTL is the TTL applied to the A/AAAA records the operator publishes.
 const dnsRecordTTL = 5 * time.Minute
 
+// serviceFQDN builds the single-label name under the zone for a Service:
+// "<svc>-<ns>.<zoneDomain>". NetBird's managed zones only serve one label below
+// the apex, so the service and namespace are hyphen-joined rather than nested.
+func serviceFQDN(svcName, svcNamespace, zoneDomain string) string {
+	return svcName + "-" + svcNamespace + "." + zoneDomain
+}
+
 // reconcileZoneRecords makes the zone's records at fqdn match exactly one A per
 // IPv4 and one AAAA per IPv6 address in addrs. It works statelessly from the
 // live zone — adopting records that already match (name+type+content), creating
@@ -80,4 +87,23 @@ func reconcileZoneRecords(ctx context.Context, nb *netbird.Client, zoneID, fqdn 
 		}
 	}
 	return kept, nil
+}
+
+// deleteZoneRecords removes every record at fqdn in the zone — used on teardown
+// of an exposure that has no per-object status enumerating its records (the
+// reverse-proxy path).
+func deleteZoneRecords(ctx context.Context, nb *netbird.Client, zoneID, fqdn string) error {
+	zoneRecords, err := nb.DNSZones.ListRecords(ctx, zoneID)
+	if err != nil {
+		return err
+	}
+	for _, rec := range zoneRecords {
+		if rec.Name != fqdn {
+			continue
+		}
+		if err := nb.DNSZones.DeleteRecord(ctx, zoneID, rec.Id); err != nil && !netbird.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
 }
