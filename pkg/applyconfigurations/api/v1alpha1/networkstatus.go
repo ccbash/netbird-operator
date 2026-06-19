@@ -8,31 +8,29 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// NetworkResourceStatusApplyConfiguration represents a declarative configuration of the NetworkResourceStatus type for use
+// NetworkStatusApplyConfiguration represents a declarative configuration of the NetworkStatus type for use
 // with apply.
 //
-// NetworkResourceStatus defines the observed state of NetworkResource.
-type NetworkResourceStatusApplyConfiguration struct {
+// NetworkStatus defines the observed state of Network.
+type NetworkStatusApplyConfiguration struct {
 	// ObservedGeneration is the last reconciled generation.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
-	// Conditions holds the conditions for the NetworkResource.
+	// Conditions holds the conditions for the Network.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// NetworkID is the id of the network the resource is created in.
+	// NetworkID is the id of the created NetBird network.
 	NetworkID *string `json:"networkID,omitempty"`
-	// ResourceID is the id of the created NetBird resource.
-	ResourceID *string `json:"resourceID,omitempty"`
 }
 
-// NetworkResourceStatusApplyConfiguration constructs a declarative configuration of the NetworkResourceStatus type for use with
+// NetworkStatusApplyConfiguration constructs a declarative configuration of the NetworkStatus type for use with
 // apply.
-func NetworkResourceStatus() *NetworkResourceStatusApplyConfiguration {
-	return &NetworkResourceStatusApplyConfiguration{}
+func NetworkStatus() *NetworkStatusApplyConfiguration {
+	return &NetworkStatusApplyConfiguration{}
 }
 
 // WithObservedGeneration sets the ObservedGeneration field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ObservedGeneration field is set to the value of the last call.
-func (b *NetworkResourceStatusApplyConfiguration) WithObservedGeneration(value int64) *NetworkResourceStatusApplyConfiguration {
+func (b *NetworkStatusApplyConfiguration) WithObservedGeneration(value int64) *NetworkStatusApplyConfiguration {
 	b.ObservedGeneration = &value
 	return b
 }
@@ -40,7 +38,7 @@ func (b *NetworkResourceStatusApplyConfiguration) WithObservedGeneration(value i
 // WithConditions adds the given value to the Conditions field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Conditions field.
-func (b *NetworkResourceStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *NetworkResourceStatusApplyConfiguration {
+func (b *NetworkStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *NetworkStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithConditions")
@@ -53,15 +51,7 @@ func (b *NetworkResourceStatusApplyConfiguration) WithConditions(values ...*v1.C
 // WithNetworkID sets the NetworkID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the NetworkID field is set to the value of the last call.
-func (b *NetworkResourceStatusApplyConfiguration) WithNetworkID(value string) *NetworkResourceStatusApplyConfiguration {
+func (b *NetworkStatusApplyConfiguration) WithNetworkID(value string) *NetworkStatusApplyConfiguration {
 	b.NetworkID = &value
-	return b
-}
-
-// WithResourceID sets the ResourceID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ResourceID field is set to the value of the last call.
-func (b *NetworkResourceStatusApplyConfiguration) WithResourceID(value string) *NetworkResourceStatusApplyConfiguration {
-	b.ResourceID = &value
 	return b
 }

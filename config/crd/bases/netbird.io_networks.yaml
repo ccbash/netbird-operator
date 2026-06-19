@@ -4,20 +4,17 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: networkresources.netbird.io
+  name: networks.netbird.io
 spec:
   group: netbird.io
   names:
-    kind: NetworkResource
-    listKind: NetworkResourceList
-    plural: networkresources
-    singular: networkresource
+    kind: Network
+    listKind: NetworkList
+    plural: networks
+    singular: network
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.address
-      name: Address
-      type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
@@ -28,8 +25,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          NetworkResource is the Schema for the networkresources API. It is a thin
-          mirror of a NetBird network resource (one address).
+          Network is the Schema for the networks API. It is a thin mirror of a NetBird
+          network.
         properties:
           apiVersion:
             description: |-
@@ -50,92 +47,26 @@ spec:
             type: object
           spec:
             description: |-
-              NetworkResourceSpec defines the desired state of NetworkResource. It mirrors
-              the NetBird network-resource API (POST /api/networks/{network}/resources) 1:1:
-              a single address routed into a network, with groups. DNS is handled
-              separately by DNSRecord; IP-family fan-out is done by the translation layer
-              (one NetworkResource per address family).
+              NetworkSpec defines the desired state of Network. It mirrors the NetBird
+              Networks API (POST /api/networks) 1:1.
             properties:
-              address:
-                description: |-
-                  Address is the single resource address — an IP, CIDR, or domain. NetBird
-                  derives the resource type from it.
-                minLength: 1
-                type: string
               description:
-                description: Description of the resource.
+                description: Description of the network.
                 type: string
-              enabled:
-                default: true
-                description: Enabled controls whether the resource is active. Defaults
-                  to true.
-                type: boolean
-              groups:
-                description: |-
-                  Groups are the NetBird groups this resource is a part of, referenced by
-                  name, id, or local Group reference.
-                items:
-                  properties:
-                    id:
-                      description: ID is the id of the group.
-                      type: string
-                    localRef:
-                      description: LocalReference is a reference to a group in the
-                        same namespace.
-                      properties:
-                        name:
-                          default: ""
-                          description: |-
-                            Name of the referent.
-                            This field is effectively required, but due to backwards compatibility is
-                            allowed to be empty. Instances of this type with an empty value here are
-                            almost certainly wrong.
-                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                          type: string
-                      type: object
-                      x-kubernetes-map-type: atomic
-                    name:
-                      description: Name is the name of the group.
-                      type: string
-                  type: object
-                  x-kubernetes-validations:
-                  - message: Exactly one of id, name, or localRef must be set
-                    rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
-                type: array
               name:
-                description: Name of the resource.
+                description: Name of the NetBird network.
                 minLength: 1
                 type: string
-              networkRef:
-                description: |-
-                  NetworkRef references the Network this resource is created in. The Network
-                  must be Ready; its status.networkID identifies the NetBird network.
-                properties:
-                  name:
-                    description: Name of the referent.
-                    type: string
-                  namespace:
-                    description: Namespace of the referent.
-                    type: string
-                required:
-                - name
-                - namespace
-                type: object
-                x-kubernetes-validations:
-                - message: Value is immutable
-                  rule: self == oldSelf
             required:
-            - address
             - name
-            - networkRef
             type: object
           status:
             default:
               observedGeneration: -1
-            description: NetworkResourceStatus defines the observed state of NetworkResource.
+            description: NetworkStatus defines the observed state of Network.
             properties:
               conditions:
-                description: Conditions holds the conditions for the NetworkResource.
+                description: Conditions holds the conditions for the Network.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -195,16 +126,12 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               networkID:
-                description: NetworkID is the id of the network the resource is created
-                  in.
+                description: NetworkID is the id of the created NetBird network.
                 type: string
               observedGeneration:
                 description: ObservedGeneration is the last reconciled generation.
                 format: int64
                 type: integer
-              resourceID:
-                description: ResourceID is the id of the created NetBird resource.
-                type: string
             type: object
         required:
         - spec

@@ -6,76 +6,84 @@ package v1alpha1
 
 import (
 	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
-	v1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-// NBServicePolicySpecApplyConfiguration represents a declarative configuration of the NBServicePolicySpec type for use
+// ReverseProxyServiceSpecApplyConfiguration represents a declarative configuration of the ReverseProxyServiceSpec type for use
 // with apply.
 //
-// NBServicePolicySpec defines the desired state of NBServicePolicy.
-type NBServicePolicySpecApplyConfiguration struct {
-	// TargetRefs identify the HTTPRoute(s) this policy attaches to, following
-	// the Gateway API direct policy-attachment pattern (GEP-713). Each target
-	// must be an HTTPRoute in the same namespace as the policy.
-	TargetRefs []v1.LocalPolicyTargetReference `json:"targetRefs,omitempty"`
-	// ProxyCluster is the address of the NetBird reverse-proxy cluster that serves
-	// the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a
-	// proxy-cluster ID and points the reverse-proxy targets at it. Required for
-	// HTTP exposure.
+// ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
+// is admin-authored — creating one is the explicit decision to expose a route
+// through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
+// service API (POST /api/reverse-proxies/services), but derives its targets
+// from the referenced route's backends rather than listing them by hand.
+type ReverseProxyServiceSpecApplyConfiguration struct {
+	// RouteRef identifies the HTTPRoute or TCPRoute whose backends this service
+	// exposes.
+	RouteRef *RouteReferenceApplyConfiguration `json:"routeRef,omitempty"`
+	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
+	// serves this service, e.g. "gate.example.com". The operator resolves it to
+	// a proxy-cluster ID and points the service's targets at it.
 	ProxyCluster *string `json:"proxyCluster,omitempty"`
-	// Upstream selects how the reverse-proxy cluster reaches the backend Service:
-	// "hostname" (default) targets the Service FQDN so the proxy resolves it via
-	// NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
+	// Domain is the public hostname the service is published under. Defaults to
+	// the referenced route's hostname when empty.
+	Domain *string `json:"domain,omitempty"`
+	// Upstream selects how the proxy reaches the backend: "hostname" (default)
+	// targets the Service FQDN so the proxy resolves it via NetBird DNS
+	// (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
 	Upstream *apiv1alpha1.UpstreamMode `json:"upstream,omitempty"`
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
-	// auto-generated from AccessGroups. Requires an HTTP service.
+	// auto-generated from AccessGroups.
 	Private *bool `json:"private,omitempty"`
 	// AccessGroups are the NetBird groups whose peers may reach a private
-	// service over the tunnel, referenced by name, id or local Group reference
-	// and resolved the same way as NetworkRouter.resourceGroups. Required when
-	// Private is true; ignored otherwise.
+	// service over the tunnel. Required when Private is true; ignored otherwise.
 	AccessGroups []GroupReferenceApplyConfiguration `json:"accessGroups,omitempty"`
 	// CrowdsecMode sets the CrowdSec IP-reputation handling for the service.
 	CrowdsecMode *apiv1alpha1.CrowdsecMode `json:"crowdsecMode,omitempty"`
 	// AccessRestrictions sets IP/geo connection-level restrictions.
 	AccessRestrictions *AccessRestrictionsApplyConfiguration `json:"accessRestrictions,omitempty"`
-	// PassHostHeader, when true, forwards the original client Host header to
-	// the backend instead of rewriting it to the backend address.
+	// PassHostHeader, when true, forwards the original client Host header to the
+	// backend instead of rewriting it to the backend address.
 	PassHostHeader *bool `json:"passHostHeader,omitempty"`
 	// RewriteRedirects, when true, rewrites Location headers in backend
 	// responses to replace the backend address with the public domain.
 	RewriteRedirects *bool `json:"rewriteRedirects,omitempty"`
 }
 
-// NBServicePolicySpecApplyConfiguration constructs a declarative configuration of the NBServicePolicySpec type for use with
+// ReverseProxyServiceSpecApplyConfiguration constructs a declarative configuration of the ReverseProxyServiceSpec type for use with
 // apply.
-func NBServicePolicySpec() *NBServicePolicySpecApplyConfiguration {
-	return &NBServicePolicySpecApplyConfiguration{}
+func ReverseProxyServiceSpec() *ReverseProxyServiceSpecApplyConfiguration {
+	return &ReverseProxyServiceSpecApplyConfiguration{}
 }
 
-// WithTargetRefs adds the given value to the TargetRefs field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the TargetRefs field.
-func (b *NBServicePolicySpecApplyConfiguration) WithTargetRefs(values ...v1.LocalPolicyTargetReference) *NBServicePolicySpecApplyConfiguration {
-	for i := range values {
-		b.TargetRefs = append(b.TargetRefs, values[i])
-	}
+// WithRouteRef sets the RouteRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RouteRef field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithRouteRef(value *RouteReferenceApplyConfiguration) *ReverseProxyServiceSpecApplyConfiguration {
+	b.RouteRef = value
 	return b
 }
 
 // WithProxyCluster sets the ProxyCluster field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ProxyCluster field is set to the value of the last call.
-func (b *NBServicePolicySpecApplyConfiguration) WithProxyCluster(value string) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithProxyCluster(value string) *ReverseProxyServiceSpecApplyConfiguration {
 	b.ProxyCluster = &value
+	return b
+}
+
+// WithDomain sets the Domain field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Domain field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithDomain(value string) *ReverseProxyServiceSpecApplyConfiguration {
+	b.Domain = &value
 	return b
 }
 
 // WithUpstream sets the Upstream field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Upstream field is set to the value of the last call.
-func (b *NBServicePolicySpecApplyConfiguration) WithUpstream(value apiv1alpha1.UpstreamMode) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithUpstream(value apiv1alpha1.UpstreamMode) *ReverseProxyServiceSpecApplyConfiguration {
 	b.Upstream = &value
 	return b
 }
@@ -83,7 +91,7 @@ func (b *NBServicePolicySpecApplyConfiguration) WithUpstream(value apiv1alpha1.U
 // WithPrivate sets the Private field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Private field is set to the value of the last call.
-func (b *NBServicePolicySpecApplyConfiguration) WithPrivate(value bool) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithPrivate(value bool) *ReverseProxyServiceSpecApplyConfiguration {
 	b.Private = &value
 	return b
 }
@@ -91,7 +99,7 @@ func (b *NBServicePolicySpecApplyConfiguration) WithPrivate(value bool) *NBServi
 // WithAccessGroups adds the given value to the AccessGroups field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the AccessGroups field.
-func (b *NBServicePolicySpecApplyConfiguration) WithAccessGroups(values ...*GroupReferenceApplyConfiguration) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithAccessGroups(values ...*GroupReferenceApplyConfiguration) *ReverseProxyServiceSpecApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithAccessGroups")
@@ -104,7 +112,7 @@ func (b *NBServicePolicySpecApplyConfiguration) WithAccessGroups(values ...*Grou
 // WithCrowdsecMode sets the CrowdsecMode field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CrowdsecMode field is set to the value of the last call.
-func (b *NBServicePolicySpecApplyConfiguration) WithCrowdsecMode(value apiv1alpha1.CrowdsecMode) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithCrowdsecMode(value apiv1alpha1.CrowdsecMode) *ReverseProxyServiceSpecApplyConfiguration {
 	b.CrowdsecMode = &value
 	return b
 }
@@ -112,7 +120,7 @@ func (b *NBServicePolicySpecApplyConfiguration) WithCrowdsecMode(value apiv1alph
 // WithAccessRestrictions sets the AccessRestrictions field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the AccessRestrictions field is set to the value of the last call.
-func (b *NBServicePolicySpecApplyConfiguration) WithAccessRestrictions(value *AccessRestrictionsApplyConfiguration) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithAccessRestrictions(value *AccessRestrictionsApplyConfiguration) *ReverseProxyServiceSpecApplyConfiguration {
 	b.AccessRestrictions = value
 	return b
 }
@@ -120,7 +128,7 @@ func (b *NBServicePolicySpecApplyConfiguration) WithAccessRestrictions(value *Ac
 // WithPassHostHeader sets the PassHostHeader field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the PassHostHeader field is set to the value of the last call.
-func (b *NBServicePolicySpecApplyConfiguration) WithPassHostHeader(value bool) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithPassHostHeader(value bool) *ReverseProxyServiceSpecApplyConfiguration {
 	b.PassHostHeader = &value
 	return b
 }
@@ -128,7 +136,7 @@ func (b *NBServicePolicySpecApplyConfiguration) WithPassHostHeader(value bool) *
 // WithRewriteRedirects sets the RewriteRedirects field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the RewriteRedirects field is set to the value of the last call.
-func (b *NBServicePolicySpecApplyConfiguration) WithRewriteRedirects(value bool) *NBServicePolicySpecApplyConfiguration {
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithRewriteRedirects(value bool) *ReverseProxyServiceSpecApplyConfiguration {
 	b.RewriteRedirects = &value
 	return b
 }

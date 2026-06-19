@@ -10,35 +10,35 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// NBServicePolicyApplyConfiguration represents a declarative configuration of the NBServicePolicy type for use
+// NetworkApplyConfiguration represents a declarative configuration of the Network type for use
 // with apply.
 //
-// NBServicePolicy configures the NetBird reverse-proxy service backing the
-// HTTPRoute(s) it targets.
-type NBServicePolicyApplyConfiguration struct {
+// Network is the Schema for the networks API. It is a thin mirror of a NetBird
+// network.
+type NetworkApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *NBServicePolicySpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *NBServicePolicyStatusApplyConfiguration `json:"status,omitempty"`
+	Spec                             *NetworkSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                           *NetworkStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// NBServicePolicy constructs a declarative configuration of the NBServicePolicy type for use with
+// Network constructs a declarative configuration of the Network type for use with
 // apply.
-func NBServicePolicy(name, namespace string) *NBServicePolicyApplyConfiguration {
-	b := &NBServicePolicyApplyConfiguration{}
+func Network(name, namespace string) *NetworkApplyConfiguration {
+	b := &NetworkApplyConfiguration{}
 	b.WithName(name)
 	b.WithNamespace(namespace)
-	b.WithKind("NBServicePolicy")
+	b.WithKind("Network")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
 }
 
-func (b NBServicePolicyApplyConfiguration) IsApplyConfiguration() {}
+func (b NetworkApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithKind(value string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithKind(value string) *NetworkApplyConfiguration {
 	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
@@ -46,7 +46,7 @@ func (b *NBServicePolicyApplyConfiguration) WithKind(value string) *NBServicePol
 // WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithAPIVersion(value string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithAPIVersion(value string) *NetworkApplyConfiguration {
 	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
@@ -54,7 +54,7 @@ func (b *NBServicePolicyApplyConfiguration) WithAPIVersion(value string) *NBServ
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithName(value string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithName(value string) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
@@ -63,7 +63,7 @@ func (b *NBServicePolicyApplyConfiguration) WithName(value string) *NBServicePol
 // WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GenerateName field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithGenerateName(value string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithGenerateName(value string) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
@@ -72,7 +72,7 @@ func (b *NBServicePolicyApplyConfiguration) WithGenerateName(value string) *NBSe
 // WithNamespace sets the Namespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Namespace field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithNamespace(value string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithNamespace(value string) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
@@ -81,7 +81,7 @@ func (b *NBServicePolicyApplyConfiguration) WithNamespace(value string) *NBServi
 // WithUID sets the UID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UID field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithUID(value types.UID) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithUID(value types.UID) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
@@ -90,7 +90,7 @@ func (b *NBServicePolicyApplyConfiguration) WithUID(value types.UID) *NBServiceP
 // WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithResourceVersion(value string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithResourceVersion(value string) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
@@ -99,7 +99,7 @@ func (b *NBServicePolicyApplyConfiguration) WithResourceVersion(value string) *N
 // WithGeneration sets the Generation field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Generation field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithGeneration(value int64) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithGeneration(value int64) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
@@ -108,7 +108,7 @@ func (b *NBServicePolicyApplyConfiguration) WithGeneration(value int64) *NBServi
 // WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithCreationTimestamp(value metav1.Time) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithCreationTimestamp(value metav1.Time) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
@@ -117,7 +117,7 @@ func (b *NBServicePolicyApplyConfiguration) WithCreationTimestamp(value metav1.T
 // WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
@@ -126,7 +126,7 @@ func (b *NBServicePolicyApplyConfiguration) WithDeletionTimestamp(value metav1.T
 // WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
@@ -136,7 +136,7 @@ func (b *NBServicePolicyApplyConfiguration) WithDeletionGracePeriodSeconds(value
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Labels field,
 // overwriting an existing map entries in Labels field with the same key.
-func (b *NBServicePolicyApplyConfiguration) WithLabels(entries map[string]string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithLabels(entries map[string]string) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
@@ -151,7 +151,7 @@ func (b *NBServicePolicyApplyConfiguration) WithLabels(entries map[string]string
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Annotations field,
 // overwriting an existing map entries in Annotations field with the same key.
-func (b *NBServicePolicyApplyConfiguration) WithAnnotations(entries map[string]string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithAnnotations(entries map[string]string) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
@@ -165,7 +165,7 @@ func (b *NBServicePolicyApplyConfiguration) WithAnnotations(entries map[string]s
 // WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OwnerReferences field.
-func (b *NBServicePolicyApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		if values[i] == nil {
@@ -179,7 +179,7 @@ func (b *NBServicePolicyApplyConfiguration) WithOwnerReferences(values ...*v1.Ow
 // WithFinalizers adds the given value to the Finalizers field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Finalizers field.
-func (b *NBServicePolicyApplyConfiguration) WithFinalizers(values ...string) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithFinalizers(values ...string) *NetworkApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
@@ -187,7 +187,7 @@ func (b *NBServicePolicyApplyConfiguration) WithFinalizers(values ...string) *NB
 	return b
 }
 
-func (b *NBServicePolicyApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+func (b *NetworkApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &v1.ObjectMetaApplyConfiguration{}
 	}
@@ -196,7 +196,7 @@ func (b *NBServicePolicyApplyConfiguration) ensureObjectMetaApplyConfigurationEx
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithSpec(value *NBServicePolicySpecApplyConfiguration) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithSpec(value *NetworkSpecApplyConfiguration) *NetworkApplyConfiguration {
 	b.Spec = value
 	return b
 }
@@ -204,29 +204,29 @@ func (b *NBServicePolicyApplyConfiguration) WithSpec(value *NBServicePolicySpecA
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *NBServicePolicyApplyConfiguration) WithStatus(value *NBServicePolicyStatusApplyConfiguration) *NBServicePolicyApplyConfiguration {
+func (b *NetworkApplyConfiguration) WithStatus(value *NetworkStatusApplyConfiguration) *NetworkApplyConfiguration {
 	b.Status = value
 	return b
 }
 
 // GetKind retrieves the value of the Kind field in the declarative configuration.
-func (b *NBServicePolicyApplyConfiguration) GetKind() *string {
+func (b *NetworkApplyConfiguration) GetKind() *string {
 	return b.TypeMetaApplyConfiguration.Kind
 }
 
 // GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
-func (b *NBServicePolicyApplyConfiguration) GetAPIVersion() *string {
+func (b *NetworkApplyConfiguration) GetAPIVersion() *string {
 	return b.TypeMetaApplyConfiguration.APIVersion
 }
 
 // GetName retrieves the value of the Name field in the declarative configuration.
-func (b *NBServicePolicyApplyConfiguration) GetName() *string {
+func (b *NetworkApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
 }
 
 // GetNamespace retrieves the value of the Namespace field in the declarative configuration.
-func (b *NBServicePolicyApplyConfiguration) GetNamespace() *string {
+func (b *NetworkApplyConfiguration) GetNamespace() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Namespace
 }

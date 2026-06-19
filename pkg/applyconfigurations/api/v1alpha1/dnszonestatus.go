@@ -8,31 +8,29 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// DNSRecordStatusApplyConfiguration represents a declarative configuration of the DNSRecordStatus type for use
+// DNSZoneStatusApplyConfiguration represents a declarative configuration of the DNSZoneStatus type for use
 // with apply.
 //
-// DNSRecordStatus defines the observed state of DNSRecord.
-type DNSRecordStatusApplyConfiguration struct {
+// DNSZoneStatus defines the observed state of DNSZone.
+type DNSZoneStatusApplyConfiguration struct {
 	// ObservedGeneration is the last reconciled generation.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
-	// Conditions holds the conditions for the DNSRecord.
+	// Conditions holds the conditions for the DNSZone.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// ZoneID is the id of the zone the record is created in.
+	// ZoneID is the id of the managed NetBird zone.
 	ZoneID *string `json:"zoneID,omitempty"`
-	// RecordID is the id of the created NetBird DNS record.
-	RecordID *string `json:"recordID,omitempty"`
 }
 
-// DNSRecordStatusApplyConfiguration constructs a declarative configuration of the DNSRecordStatus type for use with
+// DNSZoneStatusApplyConfiguration constructs a declarative configuration of the DNSZoneStatus type for use with
 // apply.
-func DNSRecordStatus() *DNSRecordStatusApplyConfiguration {
-	return &DNSRecordStatusApplyConfiguration{}
+func DNSZoneStatus() *DNSZoneStatusApplyConfiguration {
+	return &DNSZoneStatusApplyConfiguration{}
 }
 
 // WithObservedGeneration sets the ObservedGeneration field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ObservedGeneration field is set to the value of the last call.
-func (b *DNSRecordStatusApplyConfiguration) WithObservedGeneration(value int64) *DNSRecordStatusApplyConfiguration {
+func (b *DNSZoneStatusApplyConfiguration) WithObservedGeneration(value int64) *DNSZoneStatusApplyConfiguration {
 	b.ObservedGeneration = &value
 	return b
 }
@@ -40,7 +38,7 @@ func (b *DNSRecordStatusApplyConfiguration) WithObservedGeneration(value int64) 
 // WithConditions adds the given value to the Conditions field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Conditions field.
-func (b *DNSRecordStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *DNSRecordStatusApplyConfiguration {
+func (b *DNSZoneStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *DNSZoneStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithConditions")
@@ -53,15 +51,7 @@ func (b *DNSRecordStatusApplyConfiguration) WithConditions(values ...*v1.Conditi
 // WithZoneID sets the ZoneID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ZoneID field is set to the value of the last call.
-func (b *DNSRecordStatusApplyConfiguration) WithZoneID(value string) *DNSRecordStatusApplyConfiguration {
+func (b *DNSZoneStatusApplyConfiguration) WithZoneID(value string) *DNSZoneStatusApplyConfiguration {
 	b.ZoneID = &value
-	return b
-}
-
-// WithRecordID sets the RecordID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the RecordID field is set to the value of the last call.
-func (b *DNSRecordStatusApplyConfiguration) WithRecordID(value string) *DNSRecordStatusApplyConfiguration {
-	b.RecordID = &value
 	return b
 }

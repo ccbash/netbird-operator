@@ -10,34 +10,35 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// NetworkRouterApplyConfiguration represents a declarative configuration of the NetworkRouter type for use
+// DNSRecordApplyConfiguration represents a declarative configuration of the DNSRecord type for use
 // with apply.
 //
-// NetworkRouter is the Schema for the networkrouters API.
-type NetworkRouterApplyConfiguration struct {
+// DNSRecord is the Schema for the dnsrecords API. It is a thin mirror of a
+// single NetBird DNS record.
+type DNSRecordApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *NetworkRouterSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *NetworkRouterStatusApplyConfiguration `json:"status,omitempty"`
+	Spec                             *DNSRecordSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                           *DNSRecordStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// NetworkRouter constructs a declarative configuration of the NetworkRouter type for use with
+// DNSRecord constructs a declarative configuration of the DNSRecord type for use with
 // apply.
-func NetworkRouter(name, namespace string) *NetworkRouterApplyConfiguration {
-	b := &NetworkRouterApplyConfiguration{}
+func DNSRecord(name, namespace string) *DNSRecordApplyConfiguration {
+	b := &DNSRecordApplyConfiguration{}
 	b.WithName(name)
 	b.WithNamespace(namespace)
-	b.WithKind("NetworkRouter")
+	b.WithKind("DNSRecord")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
 }
 
-func (b NetworkRouterApplyConfiguration) IsApplyConfiguration() {}
+func (b DNSRecordApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithKind(value string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithKind(value string) *DNSRecordApplyConfiguration {
 	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
@@ -45,7 +46,7 @@ func (b *NetworkRouterApplyConfiguration) WithKind(value string) *NetworkRouterA
 // WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithAPIVersion(value string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithAPIVersion(value string) *DNSRecordApplyConfiguration {
 	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
@@ -53,7 +54,7 @@ func (b *NetworkRouterApplyConfiguration) WithAPIVersion(value string) *NetworkR
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithName(value string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithName(value string) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
@@ -62,7 +63,7 @@ func (b *NetworkRouterApplyConfiguration) WithName(value string) *NetworkRouterA
 // WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GenerateName field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithGenerateName(value string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithGenerateName(value string) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
@@ -71,7 +72,7 @@ func (b *NetworkRouterApplyConfiguration) WithGenerateName(value string) *Networ
 // WithNamespace sets the Namespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Namespace field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithNamespace(value string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithNamespace(value string) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
@@ -80,7 +81,7 @@ func (b *NetworkRouterApplyConfiguration) WithNamespace(value string) *NetworkRo
 // WithUID sets the UID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UID field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithUID(value types.UID) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithUID(value types.UID) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
@@ -89,7 +90,7 @@ func (b *NetworkRouterApplyConfiguration) WithUID(value types.UID) *NetworkRoute
 // WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithResourceVersion(value string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithResourceVersion(value string) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
@@ -98,7 +99,7 @@ func (b *NetworkRouterApplyConfiguration) WithResourceVersion(value string) *Net
 // WithGeneration sets the Generation field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Generation field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithGeneration(value int64) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithGeneration(value int64) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
@@ -107,7 +108,7 @@ func (b *NetworkRouterApplyConfiguration) WithGeneration(value int64) *NetworkRo
 // WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithCreationTimestamp(value metav1.Time) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithCreationTimestamp(value metav1.Time) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
@@ -116,7 +117,7 @@ func (b *NetworkRouterApplyConfiguration) WithCreationTimestamp(value metav1.Tim
 // WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
@@ -125,7 +126,7 @@ func (b *NetworkRouterApplyConfiguration) WithDeletionTimestamp(value metav1.Tim
 // WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
@@ -135,7 +136,7 @@ func (b *NetworkRouterApplyConfiguration) WithDeletionGracePeriodSeconds(value i
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Labels field,
 // overwriting an existing map entries in Labels field with the same key.
-func (b *NetworkRouterApplyConfiguration) WithLabels(entries map[string]string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithLabels(entries map[string]string) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
@@ -150,7 +151,7 @@ func (b *NetworkRouterApplyConfiguration) WithLabels(entries map[string]string) 
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Annotations field,
 // overwriting an existing map entries in Annotations field with the same key.
-func (b *NetworkRouterApplyConfiguration) WithAnnotations(entries map[string]string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithAnnotations(entries map[string]string) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
@@ -164,7 +165,7 @@ func (b *NetworkRouterApplyConfiguration) WithAnnotations(entries map[string]str
 // WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OwnerReferences field.
-func (b *NetworkRouterApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		if values[i] == nil {
@@ -178,7 +179,7 @@ func (b *NetworkRouterApplyConfiguration) WithOwnerReferences(values ...*v1.Owne
 // WithFinalizers adds the given value to the Finalizers field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Finalizers field.
-func (b *NetworkRouterApplyConfiguration) WithFinalizers(values ...string) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithFinalizers(values ...string) *DNSRecordApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
@@ -186,7 +187,7 @@ func (b *NetworkRouterApplyConfiguration) WithFinalizers(values ...string) *Netw
 	return b
 }
 
-func (b *NetworkRouterApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+func (b *DNSRecordApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &v1.ObjectMetaApplyConfiguration{}
 	}
@@ -195,7 +196,7 @@ func (b *NetworkRouterApplyConfiguration) ensureObjectMetaApplyConfigurationExis
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithSpec(value *NetworkRouterSpecApplyConfiguration) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithSpec(value *DNSRecordSpecApplyConfiguration) *DNSRecordApplyConfiguration {
 	b.Spec = value
 	return b
 }
@@ -203,29 +204,29 @@ func (b *NetworkRouterApplyConfiguration) WithSpec(value *NetworkRouterSpecApply
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *NetworkRouterApplyConfiguration) WithStatus(value *NetworkRouterStatusApplyConfiguration) *NetworkRouterApplyConfiguration {
+func (b *DNSRecordApplyConfiguration) WithStatus(value *DNSRecordStatusApplyConfiguration) *DNSRecordApplyConfiguration {
 	b.Status = value
 	return b
 }
 
 // GetKind retrieves the value of the Kind field in the declarative configuration.
-func (b *NetworkRouterApplyConfiguration) GetKind() *string {
+func (b *DNSRecordApplyConfiguration) GetKind() *string {
 	return b.TypeMetaApplyConfiguration.Kind
 }
 
 // GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
-func (b *NetworkRouterApplyConfiguration) GetAPIVersion() *string {
+func (b *DNSRecordApplyConfiguration) GetAPIVersion() *string {
 	return b.TypeMetaApplyConfiguration.APIVersion
 }
 
 // GetName retrieves the value of the Name field in the declarative configuration.
-func (b *NetworkRouterApplyConfiguration) GetName() *string {
+func (b *DNSRecordApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
 }
 
 // GetNamespace retrieves the value of the Namespace field in the declarative configuration.
-func (b *NetworkRouterApplyConfiguration) GetNamespace() *string {
+func (b *DNSRecordApplyConfiguration) GetNamespace() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Namespace
 }

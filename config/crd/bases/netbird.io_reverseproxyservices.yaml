@@ -4,20 +4,26 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: nbservicepolicies.netbird.io
+  name: reverseproxyservices.netbird.io
 spec:
   group: netbird.io
   names:
-    kind: NBServicePolicy
-    listKind: NBServicePolicyList
-    plural: nbservicepolicies
-    singular: nbservicepolicy
+    kind: ReverseProxyService
+    listKind: ReverseProxyServiceList
+    plural: reverseproxyservices
+    singular: reverseproxyservice
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.domain
+      name: Domain
+      type: string
     - jsonPath: .spec.private
       name: Private
       type: boolean
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -25,8 +31,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          NBServicePolicy configures the NetBird reverse-proxy service backing the
-          HTTPRoute(s) it targets.
+          ReverseProxyService exposes a Gateway-API route's backends through the NetBird
+          reverse proxy. It is the admin's expose-or-not decision.
         properties:
           apiVersion:
             description: |-
@@ -46,14 +52,17 @@ spec:
           metadata:
             type: object
           spec:
-            description: NBServicePolicySpec defines the desired state of NBServicePolicy.
+            description: |-
+              ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
+              is admin-authored — creating one is the explicit decision to expose a route
+              through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
+              service API (POST /api/reverse-proxies/services), but derives its targets
+              from the referenced route's backends rather than listing them by hand.
             properties:
               accessGroups:
                 description: |-
                   AccessGroups are the NetBird groups whose peers may reach a private
-                  service over the tunnel, referenced by name, id or local Group reference
-                  and resolved the same way as NetworkRouter.resourceGroups. Required when
-                  Private is true; ignored otherwise.
+                  service over the tunnel. Required when Private is true; ignored otherwise.
                 items:
                   properties:
                     id:
@@ -142,81 +151,72 @@ spec:
                 - observe
                 - enforce
                 type: string
+              domain:
+                description: |-
+                  Domain is the public hostname the service is published under. Defaults to
+                  the referenced route's hostname when empty.
+                type: string
               passHostHeader:
                 description: |-
-                  PassHostHeader, when true, forwards the original client Host header to
-                  the backend instead of rewriting it to the backend address.
+                  PassHostHeader, when true, forwards the original client Host header to the
+                  backend instead of rewriting it to the backend address.
                 type: boolean
               private:
                 description: |-
                   Private, when true, makes the service NetBird-only: inbound peers
                   authenticate via their tunnel identity (no OIDC) and an ACL policy is
-                  auto-generated from AccessGroups. Requires an HTTP service.
+                  auto-generated from AccessGroups.
                 type: boolean
               proxyCluster:
                 description: |-
-                  ProxyCluster is the address of the NetBird reverse-proxy cluster that serves
-                  the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a
-                  proxy-cluster ID and points the reverse-proxy targets at it. Required for
-                  HTTP exposure.
+                  ProxyCluster is the address of the NetBird reverse-proxy cluster that
+                  serves this service, e.g. "gate.example.com". The operator resolves it to
+                  a proxy-cluster ID and points the service's targets at it.
+                minLength: 1
                 type: string
               rewriteRedirects:
                 description: |-
                   RewriteRedirects, when true, rewrites Location headers in backend
                   responses to replace the backend address with the public domain.
                 type: boolean
-              targetRefs:
+              routeRef:
                 description: |-
-                  TargetRefs identify the HTTPRoute(s) this policy attaches to, following
-                  the Gateway API direct policy-attachment pattern (GEP-713). Each target
-                  must be an HTTPRoute in the same namespace as the policy.
-                items:
-                  description: |-
-                    LocalPolicyTargetReference identifies an API object to apply a direct or
-                    inherited policy to. This should be used as part of Policy resources
-                    that can target Gateway API resources. For more information on how this
-                    policy attachment model works, and a sample Policy resource, refer to
-                    the policy attachment documentation for Gateway API.
-                  properties:
-                    group:
-                      description: Group is the group of the target resource.
-                      maxLength: 253
-                      pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                      type: string
-                    kind:
-                      description: Kind is kind of the target resource.
-                      maxLength: 63
-                      minLength: 1
-                      pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
-                      type: string
-                    name:
-                      description: Name is the name of the target resource.
-                      maxLength: 253
-                      minLength: 1
-                      type: string
-                  required:
-                  - group
-                  - kind
-                  - name
-                  type: object
-                maxItems: 16
-                minItems: 1
-                type: array
-                x-kubernetes-validations:
-                - message: targetRefs must reference HTTPRoute in group gateway.networking.k8s.io
-                  rule: self.all(t, t.kind == 'HTTPRoute' && (t.group == 'gateway.networking.k8s.io'))
+                  RouteRef identifies the HTTPRoute or TCPRoute whose backends this service
+                  exposes.
+                properties:
+                  group:
+                    default: gateway.networking.k8s.io
+                    description: Group is the route's API group.
+                    enum:
+                    - gateway.networking.k8s.io
+                    type: string
+                  kind:
+                    description: Kind is the route kind.
+                    enum:
+                    - HTTPRoute
+                    - TCPRoute
+                    type: string
+                  name:
+                    description: Name of the route.
+                    minLength: 1
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
               upstream:
                 default: hostname
                 description: |-
-                  Upstream selects how the reverse-proxy cluster reaches the backend Service:
-                  "hostname" (default) targets the Service FQDN so the proxy resolves it via
-                  NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
+                  Upstream selects how the proxy reaches the backend: "hostname" (default)
+                  targets the Service FQDN so the proxy resolves it via NetBird DNS
+                  (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
                 enum:
                 - hostname
                 - ip
                 type: string
             required:
-            - targetRefs
+            - proxyCluster
+            - routeRef
             type: object
             x-kubernetes-validations:
             - message: accessGroups is required when private is true
@@ -225,10 +225,10 @@ spec:
           status:
             default:
               observedGeneration: -1
-            description: NBServicePolicyStatus defines the observed state of NBServicePolicy.
+            description: ReverseProxyServiceStatus defines the observed state of ReverseProxyService.
             properties:
               conditions:
-                description: Conditions holds the conditions for the NBServicePolicy.
+                description: Conditions holds the conditions for the ReverseProxyService.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -291,6 +291,10 @@ spec:
                 description: ObservedGeneration is the last reconciled generation.
                 format: int64
                 type: integer
+              serviceID:
+                description: ServiceID is the id of the created NetBird reverse-proxy
+                  service.
+                type: string
             type: object
         required:
         - spec

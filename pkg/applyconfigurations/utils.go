@@ -30,10 +30,18 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.ContainerOverrideApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("CrossNamespaceReference"):
 		return &apiv1alpha1.CrossNamespaceReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DNSRecord"):
+		return &apiv1alpha1.DNSRecordApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DNSRecordSpec"):
+		return &apiv1alpha1.DNSRecordSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("DNSRecordStatus"):
 		return &apiv1alpha1.DNSRecordStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("DNSZoneReference"):
-		return &apiv1alpha1.DNSZoneReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DNSZone"):
+		return &apiv1alpha1.DNSZoneApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DNSZoneSpec"):
+		return &apiv1alpha1.DNSZoneSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DNSZoneStatus"):
+		return &apiv1alpha1.DNSZoneStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Group"):
 		return &apiv1alpha1.GroupApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GroupReference"):
@@ -42,28 +50,26 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.GroupSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GroupStatus"):
 		return &apiv1alpha1.GroupStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NBServicePolicy"):
-		return &apiv1alpha1.NBServicePolicyApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NBServicePolicySpec"):
-		return &apiv1alpha1.NBServicePolicySpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NBServicePolicyStatus"):
-		return &apiv1alpha1.NBServicePolicyStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Network"):
+		return &apiv1alpha1.NetworkApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResource"):
 		return &apiv1alpha1.NetworkResourceApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResourceEntry"):
-		return &apiv1alpha1.NetworkResourceEntryApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResourceSpec"):
 		return &apiv1alpha1.NetworkResourceSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResourceStatus"):
 		return &apiv1alpha1.NetworkResourceStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NetworkRouter"):
-		return &apiv1alpha1.NetworkRouterApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NetworkRouterSpec"):
-		return &apiv1alpha1.NetworkRouterSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("NetworkRouterStatus"):
-		return &apiv1alpha1.NetworkRouterStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("ServiceCIDRResource"):
-		return &apiv1alpha1.ServiceCIDRResourceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NetworkSpec"):
+		return &apiv1alpha1.NetworkSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NetworkStatus"):
+		return &apiv1alpha1.NetworkStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyService"):
+		return &apiv1alpha1.ReverseProxyServiceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyServiceSpec"):
+		return &apiv1alpha1.ReverseProxyServiceSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyServiceStatus"):
+		return &apiv1alpha1.ReverseProxyServiceStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("RouteReference"):
+		return &apiv1alpha1.RouteReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SetupKey"):
 		return &apiv1alpha1.SetupKeyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SetupKeySpec"):
@@ -76,8 +82,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.SidecarProfileSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SidecarProfileStatus"):
 		return &apiv1alpha1.SidecarProfileStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("WorkloadOverride"):
-		return &apiv1alpha1.WorkloadOverrideApplyConfiguration{}
 
 	}
 	return nil

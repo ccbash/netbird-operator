@@ -4,17 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: networkrouters.netbird.io
+  name: dnszones.netbird.io
 spec:
   group: netbird.io
   names:
-    kind: NetworkRouter
-    listKind: NetworkRouterList
-    plural: networkrouters
-    singular: networkrouter
+    kind: DNSZone
+    listKind: DNSZoneList
+    plural: dnszones
+    singular: dnszone
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.domain
+      name: Domain
+      type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
@@ -24,7 +27,9 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NetworkRouter is the Schema for the networkrouters API.
+        description: |-
+          DNSZone is the Schema for the dnszones API. It is a thin mirror of a NetBird
+          managed DNS zone.
         properties:
           apiVersion:
             description: |-
@@ -44,38 +49,17 @@ spec:
           metadata:
             type: object
           spec:
-            description: NetworkRouterSpec defines the desired state of NetworkRouter.
+            description: |-
+              DNSZoneSpec defines the desired state of DNSZone. It mirrors the NetBird
+              DNS-zones API (POST /api/dns/zones) 1:1. The controller adopts an existing
+              zone with the same domain rather than failing, so a zone provisioned out of
+              band is taken over.
             properties:
-              dnsZoneRef:
-                description: DNSZoneRef is a reference to the DNS zone used to create
-                  records for resources.
-                properties:
-                  name:
-                    description: Name is the domain name of an existing Netbird DNS
-                      zone, e.g. "example.com".
-                    type: string
-                required:
-                - name
-                type: object
-              image:
-                description: Netbird client image.
-                type: string
-              logLevel:
-                description: Log level for the Netbird client.
-                enum:
-                - error
-                - warn
-                - info
-                - debug
-                - trace
-                type: string
-              resourceGroups:
+              distributionGroups:
                 description: |-
-                  ResourceGroups are the NetBird groups assigned to the resources created
-                  in this router's network — both the ServiceCIDRs subnet resources and the
-                  per-service resources backing HTTPRoutes (the latter inherit these unless
-                  the NetworkResource sets its own Groups). Access policies target these
-                  groups to grant peers access to the routed resources.
+                  DistributionGroups are the NetBird groups whose peers receive the zone, so
+                  they can resolve records in it. The reverse-proxy cluster that fronts a
+                  service must be in one of these groups for hostname upstreams to resolve.
                 items:
                   properties:
                     id:
@@ -104,55 +88,34 @@ spec:
                   - message: Exactly one of id, name, or localRef must be set
                     rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
                 type: array
-              serviceCIDRs:
-                description: |-
-                  ServiceCIDRs are CIDRs routed into the NetBird network as subnet
-                  resources, so that addresses in these ranges (e.g. the cluster's IPv4
-                  and IPv6 Service CIDRs) are reachable through this router's routing
-                  peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP
-                  in one of these ranges and route to it via the matching subnet resource.
-                items:
-                  maxLength: 43
-                  type: string
-                maxItems: 64
-                type: array
-                x-kubernetes-validations:
-                - message: serviceCIDRs entries must be valid CIDRs
-                  rule: self.all(c, isCIDR(c))
-              workloadOverride:
-                description: WorkloadOverride contains configuration that will override
-                  the default workload.
-                properties:
-                  annotations:
-                    additionalProperties:
-                      type: string
-                    description: Annotations that will be added.
-                    type: object
-                  labels:
-                    additionalProperties:
-                      type: string
-                    description: Labels that will be added.
-                    type: object
-                  podTemplate:
-                    description: PodTemplate overrides the pod template.
-                    x-kubernetes-preserve-unknown-fields: true
-                  replicas:
-                    default: 3
-                    description: Replicas sets the amount of client replicas.
-                    format: int32
-                    minimum: 1
-                    type: integer
-                type: object
+              domain:
+                description: Domain is the zone apex, e.g. "kube.example.com".
+                minLength: 1
+                type: string
+              enableSearchDomain:
+                description: EnableSearchDomain adds the zone as a search domain on
+                  distributed peers.
+                type: boolean
+              enabled:
+                default: true
+                description: Enabled controls whether the zone is active. Defaults
+                  to true.
+                type: boolean
+              name:
+                description: Name of the managed zone.
+                minLength: 1
+                type: string
             required:
-            - dnsZoneRef
+            - domain
+            - name
             type: object
           status:
             default:
               observedGeneration: -1
-            description: NetworkRouterStatus defines the observed state of NetworkRouter.
+            description: DNSZoneStatus defines the observed state of DNSZone.
             properties:
               conditions:
-                description: Conditions holds the conditions for the NetworkRouter.
+                description: Conditions holds the conditions for the DNSZone.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -211,36 +174,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              networkID:
-                description: NetworkID is the id of the network the routing peer was
-                  created in.
-                type: string
               observedGeneration:
                 description: ObservedGeneration is the last reconciled generation.
                 format: int64
                 type: integer
-              routingPeerID:
-                description: RoutingPeerID is the id of the created routing peer.
+              zoneID:
+                description: ZoneID is the id of the managed NetBird zone.
                 type: string
-              serviceCIDRResources:
-                description: |-
-                  ServiceCIDRResources tracks the subnet network resources created for
-                  ServiceCIDRs, for idempotent reconcile and cleanup.
-                items:
-                  description: ServiceCIDRResource tracks the NetBird subnet resource
-                    created for a CIDR.
-                  properties:
-                    cidr:
-                      description: CIDR is the routed range.
-                      type: string
-                    resourceID:
-                      description: ResourceID is the NetBird network resource id.
-                      type: string
-                  required:
-                  - cidr
-                  - resourceID
-                  type: object
-                type: array
             type: object
         required:
         - spec

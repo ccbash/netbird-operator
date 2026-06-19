@@ -10,35 +10,35 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// NetworkResourceApplyConfiguration represents a declarative configuration of the NetworkResource type for use
+// ReverseProxyServiceApplyConfiguration represents a declarative configuration of the ReverseProxyService type for use
 // with apply.
 //
-// NetworkResource is the Schema for the networkresources API. It is a thin
-// mirror of a NetBird network resource (one address).
-type NetworkResourceApplyConfiguration struct {
+// ReverseProxyService exposes a Gateway-API route's backends through the NetBird
+// reverse proxy. It is the admin's expose-or-not decision.
+type ReverseProxyServiceApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *NetworkResourceSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *NetworkResourceStatusApplyConfiguration `json:"status,omitempty"`
+	Spec                             *ReverseProxyServiceSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                           *ReverseProxyServiceStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// NetworkResource constructs a declarative configuration of the NetworkResource type for use with
+// ReverseProxyService constructs a declarative configuration of the ReverseProxyService type for use with
 // apply.
-func NetworkResource(name, namespace string) *NetworkResourceApplyConfiguration {
-	b := &NetworkResourceApplyConfiguration{}
+func ReverseProxyService(name, namespace string) *ReverseProxyServiceApplyConfiguration {
+	b := &ReverseProxyServiceApplyConfiguration{}
 	b.WithName(name)
 	b.WithNamespace(namespace)
-	b.WithKind("NetworkResource")
+	b.WithKind("ReverseProxyService")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
 }
 
-func (b NetworkResourceApplyConfiguration) IsApplyConfiguration() {}
+func (b ReverseProxyServiceApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithKind(value string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithKind(value string) *ReverseProxyServiceApplyConfiguration {
 	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
@@ -46,7 +46,7 @@ func (b *NetworkResourceApplyConfiguration) WithKind(value string) *NetworkResou
 // WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithAPIVersion(value string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithAPIVersion(value string) *ReverseProxyServiceApplyConfiguration {
 	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
@@ -54,7 +54,7 @@ func (b *NetworkResourceApplyConfiguration) WithAPIVersion(value string) *Networ
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithName(value string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithName(value string) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
@@ -63,7 +63,7 @@ func (b *NetworkResourceApplyConfiguration) WithName(value string) *NetworkResou
 // WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GenerateName field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithGenerateName(value string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithGenerateName(value string) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
@@ -72,7 +72,7 @@ func (b *NetworkResourceApplyConfiguration) WithGenerateName(value string) *Netw
 // WithNamespace sets the Namespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Namespace field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithNamespace(value string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithNamespace(value string) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
@@ -81,7 +81,7 @@ func (b *NetworkResourceApplyConfiguration) WithNamespace(value string) *Network
 // WithUID sets the UID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UID field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithUID(value types.UID) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithUID(value types.UID) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
@@ -90,7 +90,7 @@ func (b *NetworkResourceApplyConfiguration) WithUID(value types.UID) *NetworkRes
 // WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithResourceVersion(value string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithResourceVersion(value string) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
@@ -99,7 +99,7 @@ func (b *NetworkResourceApplyConfiguration) WithResourceVersion(value string) *N
 // WithGeneration sets the Generation field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Generation field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithGeneration(value int64) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithGeneration(value int64) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
@@ -108,7 +108,7 @@ func (b *NetworkResourceApplyConfiguration) WithGeneration(value int64) *Network
 // WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithCreationTimestamp(value metav1.Time) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithCreationTimestamp(value metav1.Time) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
@@ -117,7 +117,7 @@ func (b *NetworkResourceApplyConfiguration) WithCreationTimestamp(value metav1.T
 // WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
@@ -126,7 +126,7 @@ func (b *NetworkResourceApplyConfiguration) WithDeletionTimestamp(value metav1.T
 // WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
@@ -136,7 +136,7 @@ func (b *NetworkResourceApplyConfiguration) WithDeletionGracePeriodSeconds(value
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Labels field,
 // overwriting an existing map entries in Labels field with the same key.
-func (b *NetworkResourceApplyConfiguration) WithLabels(entries map[string]string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithLabels(entries map[string]string) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
@@ -151,7 +151,7 @@ func (b *NetworkResourceApplyConfiguration) WithLabels(entries map[string]string
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Annotations field,
 // overwriting an existing map entries in Annotations field with the same key.
-func (b *NetworkResourceApplyConfiguration) WithAnnotations(entries map[string]string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithAnnotations(entries map[string]string) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
@@ -165,7 +165,7 @@ func (b *NetworkResourceApplyConfiguration) WithAnnotations(entries map[string]s
 // WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OwnerReferences field.
-func (b *NetworkResourceApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		if values[i] == nil {
@@ -179,7 +179,7 @@ func (b *NetworkResourceApplyConfiguration) WithOwnerReferences(values ...*v1.Ow
 // WithFinalizers adds the given value to the Finalizers field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Finalizers field.
-func (b *NetworkResourceApplyConfiguration) WithFinalizers(values ...string) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithFinalizers(values ...string) *ReverseProxyServiceApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
@@ -187,7 +187,7 @@ func (b *NetworkResourceApplyConfiguration) WithFinalizers(values ...string) *Ne
 	return b
 }
 
-func (b *NetworkResourceApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+func (b *ReverseProxyServiceApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &v1.ObjectMetaApplyConfiguration{}
 	}
@@ -196,7 +196,7 @@ func (b *NetworkResourceApplyConfiguration) ensureObjectMetaApplyConfigurationEx
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithSpec(value *NetworkResourceSpecApplyConfiguration) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithSpec(value *ReverseProxyServiceSpecApplyConfiguration) *ReverseProxyServiceApplyConfiguration {
 	b.Spec = value
 	return b
 }
@@ -204,29 +204,29 @@ func (b *NetworkResourceApplyConfiguration) WithSpec(value *NetworkResourceSpecA
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *NetworkResourceApplyConfiguration) WithStatus(value *NetworkResourceStatusApplyConfiguration) *NetworkResourceApplyConfiguration {
+func (b *ReverseProxyServiceApplyConfiguration) WithStatus(value *ReverseProxyServiceStatusApplyConfiguration) *ReverseProxyServiceApplyConfiguration {
 	b.Status = value
 	return b
 }
 
 // GetKind retrieves the value of the Kind field in the declarative configuration.
-func (b *NetworkResourceApplyConfiguration) GetKind() *string {
+func (b *ReverseProxyServiceApplyConfiguration) GetKind() *string {
 	return b.TypeMetaApplyConfiguration.Kind
 }
 
 // GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
-func (b *NetworkResourceApplyConfiguration) GetAPIVersion() *string {
+func (b *ReverseProxyServiceApplyConfiguration) GetAPIVersion() *string {
 	return b.TypeMetaApplyConfiguration.APIVersion
 }
 
 // GetName retrieves the value of the Name field in the declarative configuration.
-func (b *NetworkResourceApplyConfiguration) GetName() *string {
+func (b *ReverseProxyServiceApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
 }
 
 // GetNamespace retrieves the value of the Namespace field in the declarative configuration.
-func (b *NetworkResourceApplyConfiguration) GetNamespace() *string {
+func (b *ReverseProxyServiceApplyConfiguration) GetNamespace() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Namespace
 }

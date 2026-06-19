@@ -10,10 +10,12 @@ Package v1alpha1 contains API Schema definitions for the  v1alpha1 API group.
 
 ### Resource Types
 - [ClusterProxy](#clusterproxy)
+- [DNSRecord](#dnsrecord)
+- [DNSZone](#dnszone)
 - [Group](#group)
-- [NBServicePolicy](#nbservicepolicy)
+- [Network](#network)
 - [NetworkResource](#networkresource)
-- [NetworkRouter](#networkrouter)
+- [ReverseProxyService](#reverseproxyservice)
 - [SetupKey](#setupkey)
 - [SidecarProfile](#sidecarprofile)
 
@@ -29,7 +31,7 @@ geography, applied to the reverse-proxy service.
 
 
 _Appears in:_
-- [NBServicePolicySpec](#nbservicepolicyspec)
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -126,6 +128,7 @@ _Appears in:_
 
 
 _Appears in:_
+- [DNSRecordSpec](#dnsrecordspec)
 - [NetworkResourceSpec](#networkresourcespec)
 
 | Field | Description | Default | Validation |
@@ -145,7 +148,7 @@ _Validation:_
 - Enum: [off observe enforce]
 
 _Appears in:_
-- [NBServicePolicySpec](#nbservicepolicyspec)
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
 
 | Field | Description |
 | --- | --- |
@@ -154,38 +157,131 @@ _Appears in:_
 | `enforce` |  |
 
 
+#### DNSRecord
+
+
+
+DNSRecord is the Schema for the dnsrecords API. It is a thin mirror of a
+single NetBird DNS record.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `netbird.io/v1alpha1` | | |
+| `kind` _string_ | `DNSRecord` | | |
+| `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  | Optional: \{\} <br /> |
+| `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[DNSRecordSpec](#dnsrecordspec)_ |  |  | Required: \{\} <br /> |
+| `status` _[DNSRecordStatus](#dnsrecordstatus)_ |  | \{ observedGeneration:-1 \} |  |
+
+
+#### DNSRecordSpec
+
+
+
+DNSRecordSpec defines the desired state of DNSRecord. It mirrors the NetBird
+DNS-record API (POST /api/dns/zones/{zone}/records) 1:1: a single record in a
+zone. The controller adopts an existing record matching name+type+content
+rather than recreating it (NetBird rejects duplicate records).
+
+
+
+_Appears in:_
+- [DNSRecord](#dnsrecord)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `zoneRef` _[CrossNamespaceReference](#crossnamespacereference)_ | ZoneRef references the DNSZone this record is created in. The zone must be<br />Ready; its status.zoneID identifies the NetBird zone. |  |  |
+| `name` _string_ | Name is the record name (a fully qualified name under the zone). |  | MinLength: 1 <br /> |
+| `type` _string_ | Type is the record type. |  | Enum: [A AAAA CNAME TXT MX NS SRV CAA] <br /> |
+| `content` _string_ | Content is the record content (e.g. the IP for an A/AAAA record). |  | MinLength: 1 <br /> |
+| `ttl` _integer_ | TTL is the record TTL in seconds. Defaults to 300. | 300 | Minimum: 1 <br />Optional: \{\} <br /> |
+
+
 #### DNSRecordStatus
 
 
 
-DNSRecordStatus tracks a single DNS record managed for a NetworkResource.
+DNSRecordStatus defines the observed state of DNSRecord.
 
 
 
 _Appears in:_
-- [NetworkResourceStatus](#networkresourcestatus)
+- [DNSRecord](#dnsrecord)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _string_ | Type is the record type (A or AAAA). |  |  |
-| `content` _string_ | Content is the record content (the ClusterIP). |  |  |
-| `id` _string_ | ID is the Netbird DNS record id. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the DNSRecord. |  | Optional: \{\} <br /> |
+| `zoneID` _string_ | ZoneID is the id of the zone the record is created in. |  | Optional: \{\} <br /> |
+| `recordID` _string_ | RecordID is the id of the created NetBird DNS record. |  | Optional: \{\} <br /> |
 
 
-#### DNSZoneReference
+#### DNSZone
 
 
 
-DNSZoneReference references a Netbird DNS zone by domain name.
+DNSZone is the Schema for the dnszones API. It is a thin mirror of a NetBird
+managed DNS zone.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `netbird.io/v1alpha1` | | |
+| `kind` _string_ | `DNSZone` | | |
+| `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  | Optional: \{\} <br /> |
+| `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[DNSZoneSpec](#dnszonespec)_ |  |  | Required: \{\} <br /> |
+| `status` _[DNSZoneStatus](#dnszonestatus)_ |  | \{ observedGeneration:-1 \} |  |
+
+
+#### DNSZoneSpec
+
+
+
+DNSZoneSpec defines the desired state of DNSZone. It mirrors the NetBird
+DNS-zones API (POST /api/dns/zones) 1:1. The controller adopts an existing
+zone with the same domain rather than failing, so a zone provisioned out of
+band is taken over.
 
 
 
 _Appears in:_
-- [NetworkRouterSpec](#networkrouterspec)
+- [DNSZone](#dnszone)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `name` _string_ | Name is the domain name of an existing Netbird DNS zone, e.g. "example.com". |  | Required: \{\} <br /> |
+| `name` _string_ | Name of the managed zone. |  | MinLength: 1 <br /> |
+| `domain` _string_ | Domain is the zone apex, e.g. "kube.example.com". |  | MinLength: 1 <br /> |
+| `distributionGroups` _[GroupReference](#groupreference) array_ | DistributionGroups are the NetBird groups whose peers receive the zone, so<br />they can resolve records in it. The reverse-proxy cluster that fronts a<br />service must be in one of these groups for hostname upstreams to resolve. |  | Optional: \{\} <br /> |
+| `enableSearchDomain` _boolean_ | EnableSearchDomain adds the zone as a search domain on distributed peers. |  | Optional: \{\} <br /> |
+| `enabled` _boolean_ | Enabled controls whether the zone is active. Defaults to true. | true | Optional: \{\} <br /> |
+
+
+#### DNSZoneStatus
+
+
+
+DNSZoneStatus defines the observed state of DNSZone.
+
+
+
+_Appears in:_
+- [DNSZone](#dnszone)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the DNSZone. |  | Optional: \{\} <br /> |
+| `zoneID` _string_ | ZoneID is the id of the managed NetBird zone. |  | Optional: \{\} <br /> |
 
 
 #### Group
@@ -219,9 +315,9 @@ Group is the Schema for the groups API.
 
 _Appears in:_
 - [ClusterProxySpec](#clusterproxyspec)
-- [NBServicePolicySpec](#nbservicepolicyspec)
+- [DNSZoneSpec](#dnszonespec)
 - [NetworkResourceSpec](#networkresourcespec)
-- [NetworkRouterSpec](#networkrouterspec)
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
 - [SetupKeySpec](#setupkeyspec)
 
 | Field | Description | Default | Validation |
@@ -283,12 +379,12 @@ _Appears in:_
 | `Container` | InjectionModeContainer injects the client as a regular container.<br /> |
 
 
-#### NBServicePolicy
+#### Network
 
 
 
-NBServicePolicy configures the NetBird reverse-proxy service backing the
-HTTPRoute(s) it targets.
+Network is the Schema for the networks API. It is a thin mirror of a NetBird
+network.
 
 
 
@@ -297,60 +393,20 @@ HTTPRoute(s) it targets.
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `netbird.io/v1alpha1` | | |
-| `kind` _string_ | `NBServicePolicy` | | |
+| `kind` _string_ | `Network` | | |
 | `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  | Optional: \{\} <br /> |
 | `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  | Optional: \{\} <br /> |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[NBServicePolicySpec](#nbservicepolicyspec)_ |  |  | Required: \{\} <br /> |
-| `status` _[NBServicePolicyStatus](#nbservicepolicystatus)_ |  | \{ observedGeneration:-1 \} |  |
-
-
-#### NBServicePolicySpec
-
-
-
-NBServicePolicySpec defines the desired state of NBServicePolicy.
-
-
-
-_Appears in:_
-- [NBServicePolicy](#nbservicepolicy)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `targetRefs` _LocalPolicyTargetReference array_ | TargetRefs identify the HTTPRoute(s) this policy attaches to, following<br />the Gateway API direct policy-attachment pattern (GEP-713). Each target<br />must be an HTTPRoute in the same namespace as the policy. |  | MaxItems: 16 <br />MinItems: 1 <br /> |
-| `proxyCluster` _string_ | ProxyCluster is the address of the NetBird reverse-proxy cluster that serves<br />the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a<br />proxy-cluster ID and points the reverse-proxy targets at it. Required for<br />HTTP exposure. |  | Optional: \{\} <br /> |
-| `upstream` _[UpstreamMode](#upstreammode)_ | Upstream selects how the reverse-proxy cluster reaches the backend Service:<br />"hostname" (default) targets the Service FQDN so the proxy resolves it via<br />NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly. | hostname | Enum: [hostname ip] <br />Optional: \{\} <br /> |
-| `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. Requires an HTTP service. |  | Optional: \{\} <br /> |
-| `accessGroups` _[GroupReference](#groupreference) array_ | AccessGroups are the NetBird groups whose peers may reach a private<br />service over the tunnel, referenced by name, id or local Group reference<br />and resolved the same way as NetworkRouter.resourceGroups. Required when<br />Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
-| `crowdsecMode` _[CrowdsecMode](#crowdsecmode)_ | CrowdsecMode sets the CrowdSec IP-reputation handling for the service. |  | Enum: [off observe enforce] <br />Optional: \{\} <br /> |
-| `accessRestrictions` _[AccessRestrictions](#accessrestrictions)_ | AccessRestrictions sets IP/geo connection-level restrictions. |  | Optional: \{\} <br /> |
-| `passHostHeader` _boolean_ | PassHostHeader, when true, forwards the original client Host header to<br />the backend instead of rewriting it to the backend address. |  | Optional: \{\} <br /> |
-| `rewriteRedirects` _boolean_ | RewriteRedirects, when true, rewrites Location headers in backend<br />responses to replace the backend address with the public domain. |  | Optional: \{\} <br /> |
-
-
-#### NBServicePolicyStatus
-
-
-
-NBServicePolicyStatus defines the observed state of NBServicePolicy.
-
-
-
-_Appears in:_
-- [NBServicePolicy](#nbservicepolicy)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the NBServicePolicy. |  | Optional: \{\} <br /> |
+| `spec` _[NetworkSpec](#networkspec)_ |  |  | Required: \{\} <br /> |
+| `status` _[NetworkStatus](#networkstatus)_ |  | \{ observedGeneration:-1 \} |  |
 
 
 #### NetworkResource
 
 
 
-NetworkResource is the Schema for the networkresources API.
+NetworkResource is the Schema for the networkresources API. It is a thin
+mirror of a NetBird network resource (one address).
 
 
 
@@ -367,30 +423,15 @@ NetworkResource is the Schema for the networkresources API.
 | `status` _[NetworkResourceStatus](#networkresourcestatus)_ |  | \{ observedGeneration:-1 \} |  |
 
 
-#### NetworkResourceEntry
-
-
-
-NetworkResourceEntry is a NetBird host resource created for one of a Service's
-ClusterIP families.
-
-
-
-_Appears in:_
-- [NetworkResourceStatus](#networkresourcestatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `family` _string_ | Family is the IP family ("IPv4" or "IPv6"). |  |  |
-| `address` _string_ | Address is the ClusterIP the resource points at. |  |  |
-| `resourceID` _string_ | ResourceID is the NetBird resource id. |  |  |
-
-
 #### NetworkResourceSpec
 
 
 
-NetworkResourceSpec defines the desired state of NetworkResource.
+NetworkResourceSpec defines the desired state of NetworkResource. It mirrors
+the NetBird network-resource API (POST /api/networks/{network}/resources) 1:1:
+a single address routed into a network, with groups. DNS is handled
+separately by DNSRecord; IP-family fan-out is done by the translation layer
+(one NetworkResource per address family).
 
 
 
@@ -399,10 +440,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `networkRouterRef` _[CrossNamespaceReference](#crossnamespacereference)_ | NetworkRouterRef is a reference to the network and router where the resource will be created. |  |  |
-| `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef is a reference to the service to expose in the Network.<br />Immutable: re-pointing at a different Service would change the resource's<br />address in place — create a new NetworkResource instead. |  |  |
-| `groups` _[GroupReference](#groupreference) array_ | Groups are references to groups that the resource will be a part of. |  | Optional: \{\} <br /> |
-| `ipFamilies` _[IPFamily](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#ipfamily-v1-core) array_ | IPFamilies selects which of the Service's ClusterIP families to expose.<br />Each selected family gets its own NetBird host resource at that ClusterIP,<br />so a dualstack Service is reachable over both. Defaults to all of the<br />Service's ClusterIP families. |  | items:Enum: [IPv4 IPv6] <br />Optional: \{\} <br /> |
+| `networkRef` _[CrossNamespaceReference](#crossnamespacereference)_ | NetworkRef references the Network this resource is created in. The Network<br />must be Ready; its status.networkID identifies the NetBird network. |  |  |
+| `name` _string_ | Name of the resource. |  | MinLength: 1 <br /> |
+| `address` _string_ | Address is the single resource address — an IP, CIDR, or domain. NetBird<br />derives the resource type from it. |  | MinLength: 1 <br /> |
+| `description` _string_ | Description of the resource. |  | Optional: \{\} <br /> |
+| `groups` _[GroupReference](#groupreference) array_ | Groups are the NetBird groups this resource is a part of, referenced by<br />name, id, or local Group reference. |  | Optional: \{\} <br /> |
+| `enabled` _boolean_ | Enabled controls whether the resource is active. Defaults to true. | true | Optional: \{\} <br /> |
 
 
 #### NetworkResourceStatus
@@ -420,17 +463,52 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the NetworkResource. |  | Optional: \{\} <br /> |
-| `networkID` _string_ | NetworkID is the id of the network the resources are created in. |  | Optional: \{\} <br /> |
-| `resources` _[NetworkResourceEntry](#networkresourceentry) array_ | Resources are the NetBird host resources created for the Service, one per<br />exposed IP family. |  | Optional: \{\} <br /> |
-| `dnsZoneID` _string_ | DNSZoneID is the id of the zone the DNS records are created in. |  | Optional: \{\} <br /> |
-| `dnsRecords` _[DNSRecordStatus](#dnsrecordstatus) array_ | DNSRecords are the DNS records created for the resource — one A record<br />per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP. |  | Optional: \{\} <br /> |
+| `networkID` _string_ | NetworkID is the id of the network the resource is created in. |  | Optional: \{\} <br /> |
+| `resourceID` _string_ | ResourceID is the id of the created NetBird resource. |  | Optional: \{\} <br /> |
 
 
-#### NetworkRouter
+#### NetworkSpec
 
 
 
-NetworkRouter is the Schema for the networkrouters API.
+NetworkSpec defines the desired state of Network. It mirrors the NetBird
+Networks API (POST /api/networks) 1:1.
+
+
+
+_Appears in:_
+- [Network](#network)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name of the NetBird network. |  | MinLength: 1 <br /> |
+| `description` _string_ | Description of the network. |  | Optional: \{\} <br /> |
+
+
+#### NetworkStatus
+
+
+
+NetworkStatus defines the observed state of Network.
+
+
+
+_Appears in:_
+- [Network](#network)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the Network. |  | Optional: \{\} <br /> |
+| `networkID` _string_ | NetworkID is the id of the created NetBird network. |  | Optional: \{\} <br /> |
+
+
+#### ReverseProxyService
+
+
+
+ReverseProxyService exposes a Gateway-API route's backends through the NetBird
+reverse proxy. It is the admin's expose-or-not decision.
 
 
 
@@ -439,70 +517,78 @@ NetworkRouter is the Schema for the networkrouters API.
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `netbird.io/v1alpha1` | | |
-| `kind` _string_ | `NetworkRouter` | | |
+| `kind` _string_ | `ReverseProxyService` | | |
 | `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  | Optional: \{\} <br /> |
 | `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  | Optional: \{\} <br /> |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[NetworkRouterSpec](#networkrouterspec)_ |  |  | Required: \{\} <br /> |
-| `status` _[NetworkRouterStatus](#networkrouterstatus)_ |  | \{ observedGeneration:-1 \} |  |
+| `spec` _[ReverseProxyServiceSpec](#reverseproxyservicespec)_ |  |  | Required: \{\} <br /> |
+| `status` _[ReverseProxyServiceStatus](#reverseproxyservicestatus)_ |  | \{ observedGeneration:-1 \} |  |
 
 
-#### NetworkRouterSpec
+#### ReverseProxyServiceSpec
 
 
 
-NetworkRouterSpec defines the desired state of NetworkRouter.
+ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
+is admin-authored — creating one is the explicit decision to expose a route
+through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
+service API (POST /api/reverse-proxies/services), but derives its targets
+from the referenced route's backends rather than listing them by hand.
 
 
 
 _Appears in:_
-- [NetworkRouter](#networkrouter)
+- [ReverseProxyService](#reverseproxyservice)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dnsZoneRef` _[DNSZoneReference](#dnszonereference)_ | DNSZoneRef is a reference to the DNS zone used to create records for resources. |  | Required: \{\} <br /> |
-| `serviceCIDRs` _string array_ | ServiceCIDRs are CIDRs routed into the NetBird network as subnet<br />resources, so that addresses in these ranges (e.g. the cluster's IPv4<br />and IPv6 Service CIDRs) are reachable through this router's routing<br />peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP<br />in one of these ranges and route to it via the matching subnet resource. |  | MaxItems: 64 <br />items:MaxLength: 43 <br />Optional: \{\} <br /> |
-| `resourceGroups` _[GroupReference](#groupreference) array_ | ResourceGroups are the NetBird groups assigned to the resources created<br />in this router's network — both the ServiceCIDRs subnet resources and the<br />per-service resources backing HTTPRoutes (the latter inherit these unless<br />the NetworkResource sets its own Groups). Access policies target these<br />groups to grant peers access to the routed resources. |  | Optional: \{\} <br /> |
-| `image` _string_ | Netbird client image. |  | Optional: \{\} <br /> |
-| `logLevel` _string_ | Log level for the Netbird client. |  | Enum: [error warn info debug trace] <br />Optional: \{\} <br /> |
-| `workloadOverride` _[WorkloadOverride](#workloadoverride)_ | WorkloadOverride contains configuration that will override the default workload. |  | Optional: \{\} <br /> |
+| `routeRef` _[RouteReference](#routereference)_ | RouteRef identifies the HTTPRoute or TCPRoute whose backends this service<br />exposes. |  |  |
+| `proxyCluster` _string_ | ProxyCluster is the address of the NetBird reverse-proxy cluster that<br />serves this service, e.g. "gate.example.com". The operator resolves it to<br />a proxy-cluster ID and points the service's targets at it. |  | MinLength: 1 <br /> |
+| `domain` _string_ | Domain is the public hostname the service is published under. Defaults to<br />the referenced route's hostname when empty. |  | Optional: \{\} <br /> |
+| `upstream` _[UpstreamMode](#upstreammode)_ | Upstream selects how the proxy reaches the backend: "hostname" (default)<br />targets the Service FQDN so the proxy resolves it via NetBird DNS<br />(IPv4/IPv6 transparent); "ip" targets the ClusterIP directly. | hostname | Enum: [hostname ip] <br />Optional: \{\} <br /> |
+| `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. |  | Optional: \{\} <br /> |
+| `accessGroups` _[GroupReference](#groupreference) array_ | AccessGroups are the NetBird groups whose peers may reach a private<br />service over the tunnel. Required when Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
+| `crowdsecMode` _[CrowdsecMode](#crowdsecmode)_ | CrowdsecMode sets the CrowdSec IP-reputation handling for the service. |  | Enum: [off observe enforce] <br />Optional: \{\} <br /> |
+| `accessRestrictions` _[AccessRestrictions](#accessrestrictions)_ | AccessRestrictions sets IP/geo connection-level restrictions. |  | Optional: \{\} <br /> |
+| `passHostHeader` _boolean_ | PassHostHeader, when true, forwards the original client Host header to the<br />backend instead of rewriting it to the backend address. |  | Optional: \{\} <br /> |
+| `rewriteRedirects` _boolean_ | RewriteRedirects, when true, rewrites Location headers in backend<br />responses to replace the backend address with the public domain. |  | Optional: \{\} <br /> |
 
 
-#### NetworkRouterStatus
+#### ReverseProxyServiceStatus
 
 
 
-NetworkRouterStatus defines the observed state of NetworkRouter.
+ReverseProxyServiceStatus defines the observed state of ReverseProxyService.
 
 
 
 _Appears in:_
-- [NetworkRouter](#networkrouter)
+- [ReverseProxyService](#reverseproxyservice)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the NetworkRouter. |  | Optional: \{\} <br /> |
-| `routingPeerID` _string_ | RoutingPeerID is the id of the created routing peer. |  | Optional: \{\} <br /> |
-| `networkID` _string_ | NetworkID is the id of the network the routing peer was created in. |  | Optional: \{\} <br /> |
-| `serviceCIDRResources` _[ServiceCIDRResource](#servicecidrresource) array_ | ServiceCIDRResources tracks the subnet network resources created for<br />ServiceCIDRs, for idempotent reconcile and cleanup. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the ReverseProxyService. |  | Optional: \{\} <br /> |
+| `serviceID` _string_ | ServiceID is the id of the created NetBird reverse-proxy service. |  | Optional: \{\} <br /> |
 
 
-#### ServiceCIDRResource
+#### RouteReference
 
 
 
-ServiceCIDRResource tracks the NetBird subnet resource created for a CIDR.
+RouteReference identifies the Gateway-API route whose backends a
+ReverseProxyService exposes. The route must be in the same namespace.
 
 
 
 _Appears in:_
-- [NetworkRouterStatus](#networkrouterstatus)
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `cidr` _string_ | CIDR is the routed range. |  |  |
-| `resourceID` _string_ | ResourceID is the NetBird network resource id. |  |  |
+| `group` _string_ | Group is the route's API group. | gateway.networking.k8s.io | Enum: [gateway.networking.k8s.io] <br />Optional: \{\} <br /> |
+| `kind` _string_ | Kind is the route kind. |  | Enum: [HTTPRoute TCPRoute] <br /> |
+| `name` _string_ | Name of the route. |  | MinLength: 1 <br /> |
 
 
 #### SetupKey
@@ -632,30 +718,11 @@ _Validation:_
 - Enum: [hostname ip]
 
 _Appears in:_
-- [NBServicePolicySpec](#nbservicepolicyspec)
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
 
 | Field | Description |
 | --- | --- |
 | `hostname` | UpstreamModeHostname targets the Service FQDN, so the proxy resolves it via<br />NetBird DNS (A/AAAA) — IPv4/IPv6 transparent. The default.<br /> |
 | `ip` | UpstreamModeIP targets the Service ClusterIP directly (single address<br />family, DNS-independent).<br /> |
-
-
-#### WorkloadOverride
-
-
-
-
-
-
-
-_Appears in:_
-- [NetworkRouterSpec](#networkrouterspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `labels` _object (keys:string, values:string)_ | Labels that will be added. |  | Optional: \{\} <br /> |
-| `annotations` _object (keys:string, values:string)_ | Annotations that will be added. |  | Optional: \{\} <br /> |
-| `replicas` _integer_ | Replicas sets the amount of client replicas. | 3 | Minimum: 1 <br />Optional: \{\} <br /> |
-| `podTemplate` _[PodTemplateSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#podtemplatespec-v1-core)_ | PodTemplate overrides the pod template. |  | Schemaless: \{\} <br />Optional: \{\} <br /> |
 
 

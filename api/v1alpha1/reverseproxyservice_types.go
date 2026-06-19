@@ -4,7 +4,6 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // CrowdsecMode selects how the proxy cluster's CrowdSec IP-reputation check is
@@ -65,41 +64,61 @@ type AccessRestrictions struct {
 	BlockedCountries []string `json:"blockedCountries,omitempty"`
 }
 
-// NBServicePolicySpec defines the desired state of NBServicePolicy.
-// +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
-type NBServicePolicySpec struct {
-	// TargetRefs identify the HTTPRoute(s) this policy attaches to, following
-	// the Gateway API direct policy-attachment pattern (GEP-713). Each target
-	// must be an HTTPRoute in the same namespace as the policy.
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:XValidation:rule="self.all(t, t.kind == 'HTTPRoute' && (t.group == 'gateway.networking.k8s.io'))",message="targetRefs must reference HTTPRoute in group gateway.networking.k8s.io"
-	TargetRefs []gwv1.LocalPolicyTargetReference `json:"targetRefs"`
-
-	// ProxyCluster is the address of the NetBird reverse-proxy cluster that serves
-	// the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a
-	// proxy-cluster ID and points the reverse-proxy targets at it. Required for
-	// HTTP exposure.
+// RouteReference identifies the Gateway-API route whose backends a
+// ReverseProxyService exposes. The route must be in the same namespace.
+type RouteReference struct {
+	// Group is the route's API group.
 	// +optional
-	ProxyCluster string `json:"proxyCluster,omitempty"`
+	// +kubebuilder:default=gateway.networking.k8s.io
+	// +kubebuilder:validation:Enum=gateway.networking.k8s.io
+	Group string `json:"group,omitempty"`
 
-	// Upstream selects how the reverse-proxy cluster reaches the backend Service:
-	// "hostname" (default) targets the Service FQDN so the proxy resolves it via
-	// NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
+	// Kind is the route kind.
+	// +kubebuilder:validation:Enum=HTTPRoute;TCPRoute
+	Kind string `json:"kind"`
+
+	// Name of the route.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
+
+// ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
+// is admin-authored — creating one is the explicit decision to expose a route
+// through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
+// service API (POST /api/reverse-proxies/services), but derives its targets
+// from the referenced route's backends rather than listing them by hand.
+// +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
+type ReverseProxyServiceSpec struct {
+	// RouteRef identifies the HTTPRoute or TCPRoute whose backends this service
+	// exposes.
+	RouteRef RouteReference `json:"routeRef"`
+
+	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
+	// serves this service, e.g. "gate.example.com". The operator resolves it to
+	// a proxy-cluster ID and points the service's targets at it.
+	// +kubebuilder:validation:MinLength=1
+	ProxyCluster string `json:"proxyCluster"`
+
+	// Domain is the public hostname the service is published under. Defaults to
+	// the referenced route's hostname when empty.
+	// +optional
+	Domain string `json:"domain,omitempty"`
+
+	// Upstream selects how the proxy reaches the backend: "hostname" (default)
+	// targets the Service FQDN so the proxy resolves it via NetBird DNS
+	// (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
 	// +kubebuilder:default=hostname
 	// +optional
 	Upstream UpstreamMode `json:"upstream,omitempty"`
 
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
-	// auto-generated from AccessGroups. Requires an HTTP service.
+	// auto-generated from AccessGroups.
 	// +optional
 	Private *bool `json:"private,omitempty"`
 
 	// AccessGroups are the NetBird groups whose peers may reach a private
-	// service over the tunnel, referenced by name, id or local Group reference
-	// and resolved the same way as NetworkRouter.resourceGroups. Required when
-	// Private is true; ignored otherwise.
+	// service over the tunnel. Required when Private is true; ignored otherwise.
 	// +optional
 	AccessGroups []GroupReference `json:"accessGroups,omitempty"`
 
@@ -111,8 +130,8 @@ type NBServicePolicySpec struct {
 	// +optional
 	AccessRestrictions *AccessRestrictions `json:"accessRestrictions,omitempty"`
 
-	// PassHostHeader, when true, forwards the original client Host header to
-	// the backend instead of rewriting it to the backend address.
+	// PassHostHeader, when true, forwards the original client Host header to the
+	// backend instead of rewriting it to the backend address.
 	// +optional
 	PassHostHeader *bool `json:"passHostHeader,omitempty"`
 
@@ -122,57 +141,63 @@ type NBServicePolicySpec struct {
 	RewriteRedirects *bool `json:"rewriteRedirects,omitempty"`
 }
 
-// NBServicePolicyStatus defines the observed state of NBServicePolicy.
-type NBServicePolicyStatus struct {
+// ReverseProxyServiceStatus defines the observed state of ReverseProxyService.
+type ReverseProxyServiceStatus struct {
 	// ObservedGeneration is the last reconciled generation.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions holds the conditions for the NBServicePolicy.
+	// Conditions holds the conditions for the ReverseProxyService.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ServiceID is the id of the created NetBird reverse-proxy service.
+	// +optional
+	ServiceID string `json:"serviceID,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource
+// +kubebuilder:printcolumn:name="Domain",type="string",JSONPath=".spec.domain",description=""
 // +kubebuilder:printcolumn:name="Private",type="boolean",JSONPath=".spec.private",description=""
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""
 
-// NBServicePolicy configures the NetBird reverse-proxy service backing the
-// HTTPRoute(s) it targets.
-type NBServicePolicy struct {
+// ReverseProxyService exposes a Gateway-API route's backends through the NetBird
+// reverse proxy. It is the admin's expose-or-not decision.
+type ReverseProxyService struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +required
-	Spec NBServicePolicySpec `json:"spec"`
+	Spec ReverseProxyServiceSpec `json:"spec"`
 
 	// +kubebuilder:default={"observedGeneration":-1}
-	Status NBServicePolicyStatus `json:"status,omitempty"`
+	Status ReverseProxyServiceStatus `json:"status,omitempty"`
 }
 
 // GetConditions returns the status conditions of the object.
-func (n *NBServicePolicy) GetConditions() []metav1.Condition {
-	return n.Status.Conditions
+func (s *ReverseProxyService) GetConditions() []metav1.Condition {
+	return s.Status.Conditions
 }
 
 // SetConditions sets the status conditions on the object.
-func (n *NBServicePolicy) SetConditions(conditions []metav1.Condition) {
-	n.Status.Conditions = conditions
+func (s *ReverseProxyService) SetConditions(conditions []metav1.Condition) {
+	s.Status.Conditions = conditions
 }
 
 // +kubebuilder:object:root=true
 
-// NBServicePolicyList contains a list of NBServicePolicy.
-type NBServicePolicyList struct {
+// ReverseProxyServiceList contains a list of ReverseProxyService.
+type ReverseProxyServiceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitzero"`
-	Items           []NBServicePolicy `json:"items"`
+	Items           []ReverseProxyService `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&NBServicePolicy{}, &NBServicePolicyList{})
+	SchemeBuilder.Register(&ReverseProxyService{}, &ReverseProxyServiceList{})
 }
