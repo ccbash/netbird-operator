@@ -32,34 +32,25 @@ func resourceTypeForAddress(address string) api.NetworkResourceType {
 	return api.NetworkResourceTypeDomain
 }
 
-// Controls lets a test influence the fake's behaviour at runtime. Currently it
-// models a NetBird resource being "in use by a reverse-proxy": a held resource
-// can't be deleted (NetBird answers 412 Precondition Failed), exercising the
-// operator's create-before-delete drain path.
+// Controls lets a test seed state the operator only reads (never creates) —
+// currently the reverse-proxy clusters, which are provisioned out of band.
 type Controls struct {
-	mu   sync.Mutex
-	held map[string]bool
+	mu       sync.Mutex
+	clusters []api.ProxyCluster
 }
 
-// Hold marks a resource ID as referenced by a reverse-proxy, so DELETE on it
-// returns 412 until Release is called.
-func (c *Controls) Hold(id string) {
+// AddProxyCluster seeds a reverse-proxy cluster so GetProxyClusterByAddress can
+// resolve it by address.
+func (c *Controls) AddProxyCluster(id, address string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.held[id] = true
+	c.clusters = append(c.clusters, api.ProxyCluster{Id: id, Address: address, Online: true})
 }
 
-// Release stops holding a resource ID, allowing its deletion to succeed.
-func (c *Controls) Release(id string) {
+func (c *Controls) proxyClusters() []api.ProxyCluster {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.held, id)
-}
-
-func (c *Controls) isHeld(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.held[id]
+	return append([]api.ProxyCluster(nil), c.clusters...)
 }
 
 // Client returns a fake NetBird client backed by an in-memory store.
@@ -69,17 +60,47 @@ func Client() *netbird.Client {
 }
 
 // ClientWithControls returns a fake NetBird client plus a Controls handle for
-// tests that need to influence runtime behaviour (e.g. proxy-held resources).
+// tests that need to seed read-only state (e.g. reverse-proxy clusters).
 func ClientWithControls() (*netbird.Client, *Controls) {
-	controls := &Controls{held: map[string]bool{}}
+	controls := &Controls{}
 	mux := &http.ServeMux{}
 
-	addHandler(mux, controls, "groups", func(id string, input api.GroupRequest, output api.Group) api.Group {
+	// Reverse-proxy clusters are read-only for the operator; serve the seeded set.
+	mux.Handle("GET /api/reverse-proxies/clusters", http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		b, err := json.Marshal(controls.proxyClusters())
+		if err != nil {
+			util.WriteErrorResponse("Marshal Error", http.StatusInternalServerError, rw)
+			return
+		}
+		_, _ = rw.Write(b)
+	}))
+	// Reverse-proxy services are CRUD'd by the operator.
+	addHandler(mux, "reverse-proxies/services", func(id string, input api.ServiceRequest, output api.Service) api.Service {
+		output.Id = id
+		output.Domain = input.Domain
+		output.Enabled = input.Enabled
+		output.Name = input.Name
+		output.PassHostHeader = input.PassHostHeader
+		output.RewriteRedirects = input.RewriteRedirects
+		output.Private = input.Private
+		output.AccessGroups = input.AccessGroups
+		output.AccessRestrictions = input.AccessRestrictions
+		if input.Mode != nil {
+			m := api.ServiceMode(*input.Mode)
+			output.Mode = &m
+		}
+		if input.Targets != nil {
+			output.Targets = *input.Targets
+		}
+		return output
+	})
+
+	addHandler(mux, "groups", func(id string, input api.GroupRequest, output api.Group) api.Group {
 		output.Id = id
 		output.Name = input.Name
 		return output
 	})
-	addHandler(mux, controls, "setup-keys", func(id string, input api.SetupKeyRequest, output api.SetupKeyClear) api.SetupKeyClear {
+	addHandler(mux, "setup-keys", func(id string, input api.SetupKeyRequest, output api.SetupKeyClear) api.SetupKeyClear {
 		output.Id = id
 		output.AutoGroups = input.AutoGroups
 		output.Revoked = input.Revoked
@@ -88,13 +109,13 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 		}
 		return output
 	})
-	addHandler(mux, controls, "networks", func(id string, input api.NetworkRequest, output api.Network) api.Network {
+	addHandler(mux, "networks", func(id string, input api.NetworkRequest, output api.Network) api.Network {
 		output.Id = id
 		output.Name = input.Name
 		output.Description = input.Description
 		return output
 	})
-	addHandler(mux, controls, "networks/{network}/routers", func(id string, input api.NetworkRouterRequest, output api.NetworkRouter) api.NetworkRouter {
+	addHandler(mux, "networks/{network}/routers", func(id string, input api.NetworkRouterRequest, output api.NetworkRouter) api.NetworkRouter {
 		output.Id = id
 		output.Enabled = input.Enabled
 		output.Masquerade = input.Masquerade
@@ -102,19 +123,18 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 		output.PeerGroups = input.PeerGroups
 		return output
 	})
-	addHandler(mux, controls, "networks/{network}/resources", func(id string, input api.NetworkResourceRequest, output api.NetworkResource) api.NetworkResource {
+	addHandler(mux, "networks/{network}/resources", func(id string, input api.NetworkResourceRequest, output api.NetworkResource) api.NetworkResource {
 		output.Id = id
 		output.Address = input.Address
 		output.Description = input.Description
 		output.Enabled = input.Enabled
 		// NetBird derives the resource type from its address: a bare IP (or /32,
-		// /128 prefix) is a host, anything else is treated as a domain here (the
-		// operator only creates host and domain resources). Mirroring that lets
-		// tests exercise the routing-mode switch, which keys off the live type.
+		// /128 prefix) is a host, anything else a domain. Mirror that so tests
+		// see realistic resource types.
 		output.Type = resourceTypeForAddress(input.Address)
 		return output
 	})
-	addHandler(mux, controls, "dns/zones", func(id string, input api.ZoneRequest, output api.Zone) api.Zone {
+	addHandler(mux, "dns/zones", func(id string, input api.ZoneRequest, output api.Zone) api.Zone {
 		output.Id = id
 		output.Name = input.Name
 		output.Domain = input.Domain
@@ -125,7 +145,7 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 		}
 		return output
 	})
-	addHandler(mux, controls, "dns/zones/{zone}/records", func(id string, input api.DNSRecordRequest, output api.DNSRecord) api.DNSRecord {
+	addHandler(mux, "dns/zones/{zone}/records", func(id string, input api.DNSRecordRequest, output api.DNSRecord) api.DNSRecord {
 		output.Id = id
 		output.Name = input.Name
 		output.Ttl = input.Ttl
@@ -138,7 +158,7 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 	return netbird.New(srv.URL, "ABC"), controls
 }
 
-func addHandler[T, U any](mux *http.ServeMux, controls *Controls, resource string, convertFn func(string, U, T) T) {
+func addHandler[T, U any](mux *http.ServeMux, resource string, convertFn func(string, U, T) T) {
 	var itemMx sync.RWMutex
 	store := map[string]T{}
 
@@ -255,12 +275,6 @@ func addHandler[T, U any](mux *http.ServeMux, controls *Controls, resource strin
 		_, ok := store[id]
 		if !ok {
 			util.WriteErrorResponse("Not Found", http.StatusNotFound, rw)
-			return
-		}
-		// A resource held by a reverse-proxy can't be deleted: NetBird answers
-		// 412 Precondition Failed ("resource is in use by proxy").
-		if controls.isHeld(id) {
-			util.WriteErrorResponse(fmt.Sprintf("resource %s is in use by proxy", id), http.StatusPreconditionFailed, rw)
 			return
 		}
 		delete(store, id)
