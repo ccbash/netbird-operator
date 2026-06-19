@@ -4,7 +4,6 @@ package controller
 
 import (
 	"context"
-	"time"
 
 	"github.com/fluxcd/pkg/runtime/patch"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -95,7 +94,7 @@ func (r *GatewayClassReconciler) reconcileDelete(ctx context.Context, sp *patch.
 	}
 	for _, gw := range gatewayList.Items {
 		if string(gw.Spec.GatewayClassName) == gwc.ObjectMeta.Name {
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			return ctrl.Result{RequeueAfter: gatewayPoll}, nil
 		}
 	}
 

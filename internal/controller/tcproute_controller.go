@@ -9,6 +9,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -23,6 +24,8 @@ import (
 
 type TCPRouteReconciler struct {
 	client.Client
+
+	Recorder record.EventRecorder
 }
 
 func (r *TCPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -60,6 +63,8 @@ func (r *TCPRouteReconciler) reconcileParent(ctx context.Context, logger logr.Lo
 	}
 	if !meta.IsStatusConditionTrue(gw.Status.Conditions, string(gwv1.GatewayConditionProgrammed)) {
 		logger.Info("gateway is not ready", "name", gw.ObjectMeta.Name)
+		recordEvent(r.Recorder, tr, corev1.EventTypeWarning, reasonDependencyNotReady,
+			"Gateway %s is not programmed yet", gw.Name)
 		return nil
 	}
 	netRouter, err := gatewayutil.GetGatewayNetworkRouter(ctx, r.Client, gw)

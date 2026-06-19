@@ -5,7 +5,6 @@ package controller
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -115,7 +114,7 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 			"Backend Service(s) %v not found; routing resolvable backends and retrying", missing)
 	}
 	if len(svcIdx) == 0 {
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: backendRetry}, nil
 	}
 
 	// Resolve the attached NBServicePolicies up front. routingMode decides
@@ -137,7 +136,7 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 		return ctrl.Result{}, err
 	}
 	if !ready {
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: quickRetry}, nil
 	}
 
 	targets := buildTargets(logger, hr, svcIdx, resourceID, targetType)
@@ -150,14 +149,14 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 			logger.Info("reverse-proxy target resource not found yet; awaiting recreation", "gateway", gw.Name)
 			recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonProxyTargetMissing,
 				"Reverse-proxy target resource not found yet; awaiting recreation")
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
+			return ctrl.Result{RequeueAfter: cleanupRetry}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
 	// Some backends weren't resolvable; retry so they're wired up once present.
 	if len(missing) > 0 {
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: backendRetry}, nil
 	}
 	return ctrl.Result{}, nil
 }

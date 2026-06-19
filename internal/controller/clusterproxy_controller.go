@@ -17,6 +17,7 @@ import (
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -32,6 +33,7 @@ type ClusterProxyReconciler struct {
 
 	ApiKey        string
 	ManagementURL string
+	Recorder      record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=netbird.io,resources=clusterproxies,verbs=get;list;watch;create;update;patch;delete

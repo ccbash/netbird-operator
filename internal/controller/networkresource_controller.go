@@ -117,7 +117,7 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if errors.Is(err, netbirdutil.ErrZoneNotFound) {
 		// The router's DNS zone hasn't been created yet; treat as a not-ready
 		// dependency and retry rather than erroring with a stack trace.
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, r.markNotReady(ctx, sp, netResource, "Referenced NetworkRouter DNS zone does not exist yet.")
+		return ctrl.Result{RequeueAfter: dependencyRetry}, r.markNotReady(ctx, sp, netResource, "Referenced NetworkRouter DNS zone does not exist yet.")
 	}
 	if err != nil {
 		return ctrl.Result{}, err
@@ -177,6 +177,7 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				"Old resource(s) %v still targeted by a reverse-proxy; retrying deletion", remaining)
 		}
 	}
+	staleNetworkResources.WithLabelValues(netResource.Namespace, netResource.Name).Set(float64(len(netResource.Status.StaleResourceIDs)))
 
 	// Publish A/AAAA records for the FQDN: one A per IPv4 ClusterIP and one AAAA
 	// per IPv6 ClusterIP, so the domain target resolves to the backend.
@@ -192,12 +193,12 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// A stale resource from a routing-mode change is still in use by its
 	// reverse-proxy; retry the drain soon rather than waiting for the resync.
 	if len(netResource.Status.StaleResourceIDs) > 0 {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 	}
 	// Re-reconcile periodically so a resource or DNS record deleted out of band
 	// on the NetBird control plane is detected and recreated without waiting for
 	// the controller's (multi-hour) resync.
-	return ctrl.Result{RequeueAfter: 15 * time.Minute}, nil
+	return ctrl.Result{RequeueAfter: resyncInterval}, nil
 }
 
 // markNotReady records a not-ready dependency condition on the NetworkResource
@@ -465,6 +466,8 @@ func (r *NetworkResourceReconciler) reconcileDelete(ctx context.Context, sp *pat
 			}
 		}
 	}
+
+	staleNetworkResources.DeleteLabelValues(netResource.Namespace, netResource.Name)
 
 	controllerutil.RemoveFinalizer(netResource, k8sutil.Finalizer("networkresource"))
 	err := sp.Patch(ctx, netResource)

@@ -15,6 +15,7 @@ const (
 	reasonAwaitingRelease    = "AwaitingProxyRelease"
 	reasonBackendNotFound    = "BackendNotFound"
 	reasonProxyTargetMissing = "ProxyTargetNotFound"
+	reasonInUse              = "InUse"
 )
 
 // recordEvent emits a Kubernetes Event for obj, tolerating a nil recorder so

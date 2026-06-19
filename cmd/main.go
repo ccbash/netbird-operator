@@ -233,14 +233,16 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	)
 
 	if err := (&controller.SetupKeyReconciler{
-		Client:  mgr.GetClient(),
-		Netbird: nbClient,
+		Client:   mgr.GetClient(),
+		Netbird:  nbClient,
+		Recorder: mgr.GetEventRecorderFor("setupkey"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup SetupKey controller: %w", err)
 	}
 	if err := (&controller.GroupReconciler{
-		Client:  mgr.GetClient(),
-		Netbird: nbClient,
+		Client:   mgr.GetClient(),
+		Netbird:  nbClient,
+		Recorder: mgr.GetEventRecorderFor("group"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup Group controller: %w", err)
 	}
@@ -249,6 +251,7 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		Netbird:       nbClient,
 		ClientImage:   netbirdClientImage,
 		ManagementURL: managementURL,
+		Recorder:      mgr.GetEventRecorderFor("networkrouter"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup NetworkRouter controller: %w", err)
 	}
@@ -263,6 +266,7 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		Client:        mgr.GetClient(),
 		ApiKey:        netbirdAPIKey,
 		ManagementURL: managementURL,
+		Recorder:      mgr.GetEventRecorderFor("clusterproxy"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup ClusterProxy controller: %w", err)
 	}
@@ -288,7 +292,8 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		return fmt.Errorf("setup HTTPRoute controller: %w", err)
 	}
 	if err := (&controller.TCPRouteReconciler{
-		Client: mgr.GetClient(),
+		Client:   mgr.GetClient(),
+		Recorder: mgr.GetEventRecorderFor("tcproute"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup TCPRoute controller: %w", err)
 	}
