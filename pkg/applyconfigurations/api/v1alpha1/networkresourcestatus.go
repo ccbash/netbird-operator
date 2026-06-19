@@ -17,23 +17,13 @@ type NetworkResourceStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions holds the conditions for the NetworkResource.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// NetworkID is the id of the network the resource is created in.
+	// NetworkID is the id of the network the resources are created in.
 	NetworkID *string `json:"networkID,omitempty"`
-	// ResourceID is the id of the created resource.
-	ResourceID *string `json:"resourceID,omitempty"`
-	// StaleResourceIDs are previous NetBird resource IDs left over by a
-	// routing-mode change: switching host<->domain recreates the resource under a
-	// new type, but the old one cannot be deleted while a reverse-proxy service
-	// still targets it. The new resource is created first (it has a different
-	// address and name, so the two coexist) and the old IDs are drained here on
-	// later reconciles, once the proxy has been repointed at the new resource.
-	StaleResourceIDs []string `json:"staleResourceIDs,omitempty"`
-	// DNSZoneID is the id of the zone the DNS record is created in.
+	// Resources are the NetBird host resources created for the Service, one per
+	// exposed IP family.
+	Resources []NetworkResourceEntryApplyConfiguration `json:"resources,omitempty"`
+	// DNSZoneID is the id of the zone the DNS records are created in.
 	DNSZoneID *string `json:"dnsZoneID,omitempty"`
-	// DNSRecordID is the id of the legacy single A record created before
-	// dualstack support. Retained only so it can be cleaned up on upgrade;
-	// records are now tracked in DNSRecords.
-	DNSRecordID *string `json:"dnsRecordID,omitempty"`
 	// DNSRecords are the DNS records created for the resource — one A record
 	// per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP.
 	DNSRecords []DNSRecordStatusApplyConfiguration `json:"dnsRecords,omitempty"`
@@ -74,20 +64,15 @@ func (b *NetworkResourceStatusApplyConfiguration) WithNetworkID(value string) *N
 	return b
 }
 
-// WithResourceID sets the ResourceID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ResourceID field is set to the value of the last call.
-func (b *NetworkResourceStatusApplyConfiguration) WithResourceID(value string) *NetworkResourceStatusApplyConfiguration {
-	b.ResourceID = &value
-	return b
-}
-
-// WithStaleResourceIDs adds the given value to the StaleResourceIDs field in the declarative configuration
+// WithResources adds the given value to the Resources field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the StaleResourceIDs field.
-func (b *NetworkResourceStatusApplyConfiguration) WithStaleResourceIDs(values ...string) *NetworkResourceStatusApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the Resources field.
+func (b *NetworkResourceStatusApplyConfiguration) WithResources(values ...*NetworkResourceEntryApplyConfiguration) *NetworkResourceStatusApplyConfiguration {
 	for i := range values {
-		b.StaleResourceIDs = append(b.StaleResourceIDs, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithResources")
+		}
+		b.Resources = append(b.Resources, *values[i])
 	}
 	return b
 }
@@ -97,14 +82,6 @@ func (b *NetworkResourceStatusApplyConfiguration) WithStaleResourceIDs(values ..
 // If called multiple times, the DNSZoneID field is set to the value of the last call.
 func (b *NetworkResourceStatusApplyConfiguration) WithDNSZoneID(value string) *NetworkResourceStatusApplyConfiguration {
 	b.DNSZoneID = &value
-	return b
-}
-
-// WithDNSRecordID sets the DNSRecordID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DNSRecordID field is set to the value of the last call.
-func (b *NetworkResourceStatusApplyConfiguration) WithDNSRecordID(value string) *NetworkResourceStatusApplyConfiguration {
-	b.DNSRecordID = &value
 	return b
 }
 

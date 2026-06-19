@@ -83,7 +83,7 @@ func (r *SetupKeyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		switch resp.State {
 		case "valid":
 		case "overused":
-			recordEvent(r.Recorder, setupKey, corev1.EventTypeWarning, reasonDependencyNotReady, "Setup key is overused; recreating")
+			recordEvent(r.Recorder, setupKey, reasonDependencyNotReady, "Setup key is overused; recreating")
 			return false, errors.New("setup key is overused")
 		default:
 			return false, nil

@@ -104,7 +104,7 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 	missing := missingBackendNames(hr, svcIdx)
 	if len(missing) > 0 {
 		logger.Info("backend Service(s) not found; routing the resolvable backends and retrying", "missing", missing)
-		recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonBackendNotFound,
+		recordEvent(r.Recorder, hr, reasonBackendNotFound,
 			"Backend Service(s) %v not found; routing resolvable backends and retrying", missing)
 	}
 	if len(svcIdx) == 0 {
@@ -120,13 +120,13 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 
 	clusterAddr := resolveProxyCluster(policies)
 	if clusterAddr == "" {
-		recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonDependencyNotReady,
+		recordEvent(r.Recorder, hr, reasonDependencyNotReady,
 			"No proxyCluster set on an attached NBServicePolicy; cannot expose over HTTP")
 		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 	}
 	cluster, err := netbirdutil.GetProxyClusterByAddress(ctx, r.Netbird, clusterAddr)
 	if errors.Is(err, netbirdutil.ErrProxyClusterNotFound) {
-		recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonDependencyNotReady,
+		recordEvent(r.Recorder, hr, reasonDependencyNotReady,
 			"Reverse-proxy cluster %q not found", clusterAddr)
 		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 	}
@@ -139,7 +139,7 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 	hostByService, err := r.upstreamHosts(ctx, netRouter, svcIdx, resolveUpstream(policies))
 	if err != nil {
 		if errors.Is(err, netbirdutil.ErrZoneNotFound) {
-			recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonDependencyNotReady,
+			recordEvent(r.Recorder, hr, reasonDependencyNotReady,
 				"Referenced NetworkRouter DNS zone does not exist yet")
 			return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 		}

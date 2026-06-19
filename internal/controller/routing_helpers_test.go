@@ -87,27 +87,6 @@ func TestBuildClusterTargets(t *testing.T) {
 	require.Equal(t, 8080, byHost["app-ns.zone"].Port)
 }
 
-func TestResourceAddressFor(t *testing.T) {
-	t.Parallel()
-
-	svc := &corev1.Service{Spec: corev1.ServiceSpec{ClusterIP: "10.96.0.10"}}
-	fqdn := "app-default.cluster.local"
-
-	// ip mode (and empty default) -> host resource at the ClusterIP.
-	addr, rType := resourceAddressFor(svc, fqdn, nbv1alpha1.RoutingModeIP)
-	require.Equal(t, "10.96.0.10", addr)
-	require.Equal(t, api.NetworkResourceTypeHost, rType)
-
-	addr, rType = resourceAddressFor(svc, fqdn, "")
-	require.Equal(t, "10.96.0.10", addr)
-	require.Equal(t, api.NetworkResourceTypeHost, rType)
-
-	// domain mode -> domain resource at the FQDN.
-	addr, rType = resourceAddressFor(svc, fqdn, nbv1alpha1.RoutingModeDomain)
-	require.Equal(t, fqdn, addr)
-	require.Equal(t, api.NetworkResourceTypeDomain, rType)
-}
-
 func TestDNSRecordTypeFor(t *testing.T) {
 	t.Parallel()
 

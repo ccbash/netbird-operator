@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
@@ -147,172 +146,13 @@ var _ = Describe("NetworkResource Controller", func() {
 			err = k8sClient.Get(ctx, nn, netResource)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(netResource.Status.NetworkID).NotTo(BeEmpty())
-			Expect(netResource.Status.ResourceID).NotTo(BeEmpty())
+			Expect(netResource.Status.Resources).NotTo(BeEmpty())
+			Expect(netResource.Status.Resources[0].ResourceID).NotTo(BeEmpty())
+			Expect(netResource.Status.Resources[0].Address).To(Equal(svc.Spec.ClusterIP))
 			Expect(netResource.Status.DNSZoneID).NotTo(BeEmpty())
 			Expect(netResource.Status.DNSRecords).NotTo(BeEmpty())
 			Expect(netResource.Status.DNSRecords[0].Type).To(Equal("A"))
 			Expect(netResource.Status.DNSRecords[0].Content).To(Equal(svc.Spec.ClusterIP))
-		})
-
-		It("recreates the resource create-before-delete on a routing-mode switch", func() {
-			zoneReq := api.ZoneRequest{Name: "cluster.local", Domain: "cluster.local"}
-			_, err := netRouterRec.Netbird.DNSZones.CreateZone(ctx, zoneReq)
-			Expect(err).ToNot(HaveOccurred())
-
-			netRouter := &nbv1alpha1.NetworkRouter{
-				ObjectMeta: metav1.ObjectMeta{Name: nn.Name, Namespace: nn.Namespace},
-				Spec: nbv1alpha1.NetworkRouterSpec{
-					DNSZoneRef: nbv1alpha1.DNSZoneReference{Name: "cluster.local"},
-				},
-			}
-			Expect(k8sClient.Create(ctx, netRouter)).To(Succeed())
-			for range 3 {
-				_, err := netRouterRec.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-				Expect(err).NotTo(HaveOccurred())
-				key := client.ObjectKey{Name: fmt.Sprintf("networkrouter-%s", netRouter.Name), Namespace: nn.Namespace}
-				_, err = groupRec.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-				Expect(err).NotTo(HaveOccurred())
-				_, err = setupKeyRec.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-				Expect(err).NotTo(HaveOccurred())
-			}
-
-			svc := &corev1.Service{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: nn.Namespace},
-				Spec: corev1.ServiceSpec{
-					Ports: []corev1.ServicePort{{Port: 8080}},
-				},
-			}
-			Expect(k8sClient.Create(ctx, svc)).To(Succeed())
-			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
-
-			netResource := &nbv1alpha1.NetworkResource{
-				ObjectMeta: metav1.ObjectMeta{Name: nn.Name, Namespace: nn.Namespace},
-				Spec: nbv1alpha1.NetworkResourceSpec{
-					NetworkRouterRef: nbv1alpha1.CrossNamespaceReference{
-						Name:      netRouter.Name,
-						Namespace: netRouter.Namespace,
-					},
-					ServiceRef:  corev1.LocalObjectReference{Name: svc.Name},
-					RoutingMode: nbv1alpha1.RoutingModeIP,
-				},
-			}
-			Expect(k8sClient.Create(ctx, netResource)).To(Succeed())
-
-			// Initial reconcile: a host resource at the Service ClusterIP.
-			_, err = netResourceRec.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Get(ctx, nn, netResource)).To(Succeed())
-			hostID := netResource.Status.ResourceID
-			Expect(hostID).NotTo(BeEmpty())
-			Expect(netResource.Status.StaleResourceIDs).To(BeEmpty())
-
-			networkID := netResource.Status.NetworkID
-			resources := netResourceRec.Netbird.Networks.Resources(networkID)
-			hostRes, err := resources.Get(ctx, hostID)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(hostRes.Type).To(Equal(api.NetworkResourceTypeHost))
-			Expect(hostRes.Address).To(Equal(svc.Spec.ClusterIP))
-
-			// Switch to domain routing.
-			Expect(k8sClient.Get(ctx, nn, netResource)).To(Succeed())
-			netResource.Spec.RoutingMode = nbv1alpha1.RoutingModeDomain
-			Expect(k8sClient.Update(ctx, netResource)).To(Succeed())
-
-			_, err = netResourceRec.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Get(ctx, nn, netResource)).To(Succeed())
-
-			// A new domain resource replaced the host one, and — with no proxy
-			// holding it in this test — the old resource drained immediately.
-			domainID := netResource.Status.ResourceID
-			Expect(domainID).NotTo(BeEmpty())
-			Expect(domainID).NotTo(Equal(hostID))
-			Expect(netResource.Status.StaleResourceIDs).To(BeEmpty())
-
-			domainRes, err := resources.Get(ctx, domainID)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(domainRes.Type).To(Equal(api.NetworkResourceTypeDomain))
-			Expect(domainRes.Address).To(Equal("test-" + nn.Namespace + ".cluster.local"))
-
-			// The old host resource is gone.
-			_, err = resources.Get(ctx, hostID)
-			Expect(netbird.IsNotFound(err)).To(BeTrue())
-		})
-
-		It("defers draining a proxy-held resource until it is released", func() {
-			nbClient, controls := netbirdmock.ClientWithControls()
-			netResourceRec.Netbird = nbClient
-			netRouterRec.Netbird = nbClient
-			setupKeyRec.Netbird = nbClient
-			groupRec.Netbird = nbClient
-
-			_, err := nbClient.DNSZones.CreateZone(ctx, api.ZoneRequest{Name: "cluster.local", Domain: "cluster.local"})
-			Expect(err).ToNot(HaveOccurred())
-
-			netRouter := &nbv1alpha1.NetworkRouter{
-				ObjectMeta: metav1.ObjectMeta{Name: nn.Name, Namespace: nn.Namespace},
-				Spec:       nbv1alpha1.NetworkRouterSpec{DNSZoneRef: nbv1alpha1.DNSZoneReference{Name: "cluster.local"}},
-			}
-			Expect(k8sClient.Create(ctx, netRouter)).To(Succeed())
-			for range 3 {
-				_, err := netRouterRec.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-				Expect(err).NotTo(HaveOccurred())
-				key := client.ObjectKey{Name: fmt.Sprintf("networkrouter-%s", netRouter.Name), Namespace: nn.Namespace}
-				_, err = groupRec.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-				Expect(err).NotTo(HaveOccurred())
-				_, err = setupKeyRec.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-				Expect(err).NotTo(HaveOccurred())
-			}
-
-			svc := &corev1.Service{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: nn.Namespace},
-				Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
-			}
-			Expect(k8sClient.Create(ctx, svc)).To(Succeed())
-			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
-
-			netResource := &nbv1alpha1.NetworkResource{
-				ObjectMeta: metav1.ObjectMeta{Name: nn.Name, Namespace: nn.Namespace},
-				Spec: nbv1alpha1.NetworkResourceSpec{
-					NetworkRouterRef: nbv1alpha1.CrossNamespaceReference{Name: netRouter.Name, Namespace: netRouter.Namespace},
-					ServiceRef:       corev1.LocalObjectReference{Name: svc.Name},
-					RoutingMode:      nbv1alpha1.RoutingModeIP,
-				},
-			}
-			Expect(k8sClient.Create(ctx, netResource)).To(Succeed())
-			_, err = netResourceRec.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Get(ctx, nn, netResource)).To(Succeed())
-			hostID := netResource.Status.ResourceID
-			networkID := netResource.Status.NetworkID
-			resources := nbClient.Networks.Resources(networkID)
-
-			// Simulate a reverse-proxy holding the host resource, then switch mode.
-			controls.Hold(hostID)
-			Expect(k8sClient.Get(ctx, nn, netResource)).To(Succeed())
-			netResource.Spec.RoutingMode = nbv1alpha1.RoutingModeDomain
-			Expect(k8sClient.Update(ctx, netResource)).To(Succeed())
-
-			res, err := netResourceRec.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			// The new domain resource is live, but the old one is retained as
-			// stale (still proxy-held) and a short requeue is scheduled.
-			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
-			Expect(k8sClient.Get(ctx, nn, netResource)).To(Succeed())
-			domainID := netResource.Status.ResourceID
-			Expect(domainID).NotTo(Equal(hostID))
-			Expect(netResource.Status.StaleResourceIDs).To(ContainElement(hostID))
-			_, err = resources.Get(ctx, hostID)
-			Expect(err).NotTo(HaveOccurred()) // still present — drain was blocked
-
-			// The HTTPRoute controller repoints the proxy off the old resource.
-			controls.Release(hostID)
-			_, err = netResourceRec.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Get(ctx, nn, netResource)).To(Succeed())
-			Expect(netResource.Status.StaleResourceIDs).To(BeEmpty())
-			_, err = resources.Get(ctx, hostID)
-			Expect(netbird.IsNotFound(err)).To(BeTrue()) // now drained
 		})
 	})
 })

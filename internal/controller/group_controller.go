@@ -7,7 +7,6 @@ import (
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -111,7 +110,7 @@ func (r *GroupReconciler) reconcileDelete(ctx context.Context, sp *patch.SerialP
 			// group or setup key). Back off and retry instead of erroring every
 			// reconcile — the finalizer keeps the object until the group frees.
 			logf.FromContext(ctx).Info("group still in use, retrying deletion", "groupID", group.Status.GroupID)
-			recordEvent(r.Recorder, group, corev1.EventTypeWarning, reasonInUse,
+			recordEvent(r.Recorder, group, reasonInUse,
 				"NetBird group %s still in use; retrying deletion", group.Status.GroupID)
 			return ctrl.Result{RequeueAfter: cleanupRetry}, nil
 		default:

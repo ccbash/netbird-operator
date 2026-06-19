@@ -107,11 +107,6 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	controllerutil.AddFinalizer(netResource, k8sutil.Finalizer("networkresource"))
 
-	// Resolve the DNS zone first: the resource is a *domain* resource whose
-	// address is the Service FQDN (built from the zone's Domain). A reverse-proxy
-	// domain target resolves that FQDN via NetBird DNS (the A/AAAA records below)
-	// to a ClusterIP, which is reachable via the router's service-CIDR subnet
-	// resource. The resource type (domain) is derived by NetBird from the address.
 	zone, err := netbirdutil.GetDNSZoneByName(ctx, r.Netbird, netRouter.Spec.DNSZoneRef.Name)
 	if errors.Is(err, netbirdutil.ErrZoneNotFound) {
 		// The router's DNS zone hasn't been created yet; treat as a not-ready
@@ -121,78 +116,68 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	// Single label under the zone: NetBird's managed zone only serves a single
-	// label below the apex, so svc and namespace are joined with a hyphen
-	// ("<svc>-<ns>.<zone>") rather than as dotted sub-labels
-	// ("<svc>.<ns>.<zone>"), which the zone creates but doesn't resolve.
-	fqdn := strings.Join([]string{svc.Name + "-" + svc.Namespace, zone.Domain}, ".")
+	fqdn := serviceFQDN(svc.Name, svc.Namespace, zone.Domain)
 
-	// RoutingMode selects how the resource is addressed: a host resource at the
-	// ClusterIP (ip, the default) or a domain resource at the FQDN (domain).
-	address, desiredType := resourceAddressFor(svc, fqdn, netResource.Spec.RoutingMode)
-
-	netReq := api.NetworkResourceRequest{
-		// NetBird requires resource names to be unique within a network. A
-		// routing-mode switch briefly keeps the old and new resources side by
-		// side (create-before-delete), so the name is suffixed with the type to
-		// keep the two from colliding.
-		Name:        resourceName(netResource.UID, desiredType),
-		Description: new(svc.Name + "/" + svc.Namespace),
-		Address:     address,
-		Enabled:     true,
-		Groups:      groupIDs,
-	}
-	resourceID, staleID, err := r.upsertResource(ctx, netRouter.Status.NetworkID, netResource.Status.ResourceID, netReq, desiredType)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	netResource.Status.NetworkID = netRouter.Status.NetworkID
-	netResource.Status.ResourceID = resourceID
-	if staleID != "" {
-		netResource.Status.StaleResourceIDs = appendUnique(netResource.Status.StaleResourceIDs, staleID)
-		recordEvent(r.Recorder, netResource, corev1.EventTypeNormal, reasonRoutingModeSwitch,
-			"Routing mode changed to %q; created resource %s, draining old resource %s once the reverse-proxy is repointed",
-			netResource.Spec.RoutingMode, resourceID, staleID)
-	}
-	// Persist the new resource ID before draining the old one: the HTTPRoute
-	// controller repoints the reverse-proxy at this ID, which is what finally lets
-	// the stale resource be deleted.
-	err = sp.Patch(ctx, netResource)
-	if err != nil {
-		return ctrl.Result{}, err
+	// Expose one NetBird host resource per ClusterIP family (filtered by
+	// spec.IPFamilies), so a dualstack Service is reachable over both.
+	addrs := familyAddresses(svc, netResource.Spec.IPFamilies)
+	if len(addrs) == 0 {
+		return ctrl.Result{}, r.markNotReady(ctx, sp, netResource, "Service has no ClusterIP in the requested IP families.")
 	}
 
-	// Drain resources left over from a routing-mode change. They delete only once
-	// the proxy has been repointed at the current resource, so any that are still
-	// in use are kept and retried on a later reconcile.
-	if len(netResource.Status.StaleResourceIDs) > 0 {
-		remaining, err := r.drainStaleResources(ctx, netResource.Status.NetworkID, netResource.Status.StaleResourceIDs)
+	networkID := netRouter.Status.NetworkID
+	resources := r.Netbird.Networks.Resources(networkID)
+	existingByFamily := map[string]string{}
+	for _, e := range netResource.Status.Resources {
+		existingByFamily[e.Family] = e.ResourceID
+	}
+
+	desc := svc.Name + "/" + svc.Namespace
+	entries := make([]nbv1alpha1.NetworkResourceEntry, 0, len(addrs))
+	desired := map[string]bool{}
+	for _, fa := range addrs {
+		family := string(fa.family)
+		desired[family] = true
+		netReq := api.NetworkResourceRequest{
+			// Names are unique within a network, so suffix with the family to let
+			// the IPv4 and IPv6 host resources coexist.
+			Name:        familyResourceName(netResource.UID, fa.family),
+			Description: new(desc),
+			Address:     fa.address,
+			Enabled:     true,
+			Groups:      groupIDs,
+		}
+		id, err := upsertHostResource(ctx, resources, existingByFamily[family], netReq)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		netResource.Status.StaleResourceIDs = remaining
-		if len(remaining) > 0 {
-			recordEvent(r.Recorder, netResource, corev1.EventTypeWarning, reasonAwaitingRelease,
-				"Old resource(s) %v still targeted by a reverse-proxy; retrying deletion", remaining)
+		entries = append(entries, nbv1alpha1.NetworkResourceEntry{Family: family, Address: fa.address, ResourceID: id})
+	}
+
+	// Delete resources for families no longer exposed.
+	for _, e := range netResource.Status.Resources {
+		if desired[e.Family] {
+			continue
+		}
+		if err := resources.Delete(ctx, e.ResourceID); err != nil && !netbird.IsNotFound(err) {
+			return ctrl.Result{}, err
 		}
 	}
-	staleNetworkResources.WithLabelValues(netResource.Namespace, netResource.Name).Set(float64(len(netResource.Status.StaleResourceIDs)))
 
-	// Publish A/AAAA records for the FQDN: one A per IPv4 ClusterIP and one AAAA
-	// per IPv6 ClusterIP, so the domain target resolves to the backend.
-	if err := r.reconcileDNSRecords(ctx, sp, netResource, zone, fqdn, clusterIPsOf(svc)); err != nil {
+	netResource.Status.NetworkID = networkID
+	netResource.Status.Resources = entries
+	if err := sp.Patch(ctx, netResource); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Publish A/AAAA records for the exposed addresses.
+	if err := r.reconcileDNSRecords(ctx, sp, netResource, zone, fqdn, addressList(addrs)); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	conditions.MarkTrue(netResource, nbv1alpha1.ReadyCondition, nbv1alpha1.ReconciledReason, "")
-	err = sp.Patch(ctx, netResource, patch.WithStatusObservedGeneration{})
-	if err != nil {
+	if err := sp.Patch(ctx, netResource, patch.WithStatusObservedGeneration{}); err != nil {
 		return ctrl.Result{}, err
-	}
-	// A stale resource from a routing-mode change is still in use by its
-	// reverse-proxy; retry the drain soon rather than waiting for the resync.
-	if len(netResource.Status.StaleResourceIDs) > 0 {
-		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 	}
 	// Re-reconcile periodically so a resource or DNS record deleted out of band
 	// on the NetBird control plane is detected and recreated without waiting for
@@ -204,103 +189,87 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // and patches its status.
 func (r *NetworkResourceReconciler) markNotReady(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource, msg string) error {
 	conditions.MarkFalse(netResource, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "%s", msg)
-	recordEvent(r.Recorder, netResource, corev1.EventTypeWarning, reasonDependencyNotReady, "%s", msg)
+	recordEvent(r.Recorder, netResource, reasonDependencyNotReady, "%s", msg)
 	return sp.Patch(ctx, netResource)
 }
 
-// upsertResource creates or updates the NetBird network resource for netReq,
-// returning its ID and, for a routing-mode switch, the ID of the now-stale
-// resource the caller must drain. It reads the resource first and acts on the
-// result, so a resource that was deleted out of band becomes a clean create
-// rather than a failing PUT, and a routing-mode switch (host<->domain) is
-// recreated rather than updated: NetBird derives the type from the address but
-// won't change it on update, and the proxy target rejects a stale type.
-//
-// The switch is create-before-delete: NetBird won't delete a resource that a
-// reverse-proxy still targets, so deleting the old resource first would
-// deadlock (the proxy is only repointed once the new resource's ID is
-// published). Instead the new resource is created up front — it has a different
-// address and a type-suffixed name, so it coexists with the old one — and the
-// old ID is returned for the caller to drain after the proxy moves over.
-func (r *NetworkResourceReconciler) upsertResource(ctx context.Context, networkID, existingID string, netReq api.NetworkResourceRequest, desiredType api.NetworkResourceType) (newID, staleID string, err error) {
-	resources := r.Netbird.Networks.Resources(networkID)
+// upsertHostResource creates or updates a host NetBird resource for netReq. It
+// reads the existing resource first, so one deleted out of band becomes a clean
+// create rather than a failing update.
+func upsertHostResource(ctx context.Context, resources *netbird.NetworkResourcesAPI, existingID string, netReq api.NetworkResourceRequest) (string, error) {
 	if existingID != "" {
-		existing, err := resources.Get(ctx, existingID)
-		switch {
-		case err == nil && existing.Type == desiredType:
+		if _, err := resources.Get(ctx, existingID); err == nil {
 			netResp, err := resources.Update(ctx, existingID, netReq)
 			if err != nil {
-				return "", "", err
+				return "", err
 			}
-			return netResp.Id, "", nil
-		case err == nil:
-			// Routing mode changed: create the new-typed resource, then hand back
-			// the old ID so it is drained once the proxy has been repointed.
-			netResp, err := resources.Create(ctx, netReq)
-			if err != nil {
-				return "", "", err
-			}
-			return netResp.Id, existingID, nil
-		case !netbird.IsNotFound(err):
-			return "", "", err
+			return netResp.Id, nil
+		} else if !netbird.IsNotFound(err) {
+			return "", err
 		}
 		// Not found (deleted out of band) — fall through to create.
 	}
 	netResp, err := resources.Create(ctx, netReq)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return netResp.Id, "", nil
+	return netResp.Id, nil
 }
 
-// drainStaleResources deletes resources left over from a routing-mode change and
-// returns the IDs that still could not be deleted because a reverse-proxy
-// continues to target them (NetBird answers 412 Precondition Failed). Those are
-// retried on a later reconcile, once the HTTPRoute controller has repointed the
-// proxy at the current resource.
-func (r *NetworkResourceReconciler) drainStaleResources(ctx context.Context, networkID string, ids []string) ([]string, error) {
-	resources := r.Netbird.Networks.Resources(networkID)
-	var remaining []string
-	for _, id := range ids {
-		err := resources.Delete(ctx, id)
-		switch {
-		case err == nil, netbird.IsNotFound(err):
-			// Drained (or already gone).
-		case netbirdutil.IsConflict(err):
-			ctrl.LoggerFrom(ctx).Info("stale network resource still in use by a reverse-proxy; awaiting release before deletion", "resourceID", id)
-			remaining = append(remaining, id)
-		default:
-			return nil, err
+// familyResourceName builds a per-family NetBird resource name (e.g.
+// "<uid>-ipv4") so the IPv4 and IPv6 host resources for a Service coexist —
+// names are unique within a network.
+func familyResourceName(uid types.UID, family corev1.IPFamily) string {
+	return string(uid) + "-" + strings.ToLower(string(family))
+}
+
+// familyAddress pairs a Service ClusterIP with its IP family.
+type familyAddress struct {
+	family  corev1.IPFamily
+	address string
+}
+
+// familyAddresses returns the Service's ClusterIPs paired with their IP family,
+// filtered to want (all families when want is empty).
+func familyAddresses(svc *corev1.Service, want []corev1.IPFamily) []familyAddress {
+	wanted := map[corev1.IPFamily]bool{}
+	for _, f := range want {
+		wanted[f] = true
+	}
+	var out []familyAddress
+	for _, ip := range clusterIPsOf(svc) {
+		family := ipFamilyOf(ip)
+		if family == "" {
+			continue
 		}
-	}
-	return remaining, nil
-}
-
-// resourceName builds a NetBird resource name that is unique per routing-mode
-// type, so the old and new resources can coexist during a create-before-delete
-// routing-mode switch.
-func resourceName(uid types.UID, t api.NetworkResourceType) string {
-	return string(uid) + "-" + string(t)
-}
-
-// appendUnique appends id to ids unless it is already present.
-func appendUnique(ids []string, id string) []string {
-	for _, existing := range ids {
-		if existing == id {
-			return ids
+		if len(want) > 0 && !wanted[family] {
+			continue
 		}
+		out = append(out, familyAddress{family: family, address: ip})
 	}
-	return append(ids, id)
+	return out
 }
 
-// resourceAddressFor returns the NetworkResource address and type for a Service
-// under the given routing mode: a host resource at the ClusterIP (ip, the
-// default) or a domain resource at the FQDN (domain).
-func resourceAddressFor(svc *corev1.Service, fqdn string, mode nbv1alpha1.RoutingMode) (string, api.NetworkResourceType) {
-	if mode == nbv1alpha1.RoutingModeDomain {
-		return fqdn, api.NetworkResourceTypeDomain
+// addressList extracts the addresses from a slice of familyAddress.
+func addressList(fas []familyAddress) []string {
+	out := make([]string, 0, len(fas))
+	for _, fa := range fas {
+		out = append(out, fa.address)
 	}
-	return svc.Spec.ClusterIP, api.NetworkResourceTypeHost
+	return out
+}
+
+// ipFamilyOf classifies an IP string as IPv4 or IPv6, or "" when it is not a
+// valid IP.
+func ipFamilyOf(ip string) corev1.IPFamily {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ""
+	}
+	if parsed.To4() != nil {
+		return corev1.IPv4Protocol
+	}
+	return corev1.IPv6Protocol
 }
 
 // dnsRecordTypeFor classifies an IP string as an A (IPv4) or AAAA (IPv6) record.
@@ -353,23 +322,8 @@ func (r *NetworkResourceReconciler) reconcileDNSRecords(ctx context.Context, sp 
 				return err
 			}
 		}
-		if netResource.Status.DNSRecordID != "" {
-			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
-				return err
-			}
-		}
 		netResource.Status.DNSRecords = nil
-		netResource.Status.DNSRecordID = ""
 		netResource.Status.DNSZoneID = ""
-	}
-
-	// Clean up the legacy single A record (its name used the zone identifier,
-	// not the domain) now that records are managed as a set under fqdn.
-	if netResource.Status.DNSRecordID != "" {
-		if err := r.Netbird.DNSZones.DeleteRecord(ctx, zone.Id, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
-			return err
-		}
-		netResource.Status.DNSRecordID = ""
 	}
 
 	// Reconcile the records against the live zone (adopt/create/delete) via the
@@ -389,18 +343,9 @@ func (r *NetworkResourceReconciler) reconcileDNSRecords(ctx context.Context, sp 
 }
 
 func (r *NetworkResourceReconciler) reconcileDelete(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource) (ctrl.Result, error) {
-	if netResource.Status.NetworkID != "" && netResource.Status.ResourceID != "" {
-		err := r.Netbird.Networks.Resources(netResource.Status.NetworkID).Delete(ctx, netResource.Status.ResourceID)
-		if err != nil && !netbird.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-	}
-	// Also delete any resources still draining from a routing-mode switch, so a
-	// resource deleted mid-drain doesn't orphan the old NetBird resource.
 	if netResource.Status.NetworkID != "" {
-		for _, id := range netResource.Status.StaleResourceIDs {
-			err := r.Netbird.Networks.Resources(netResource.Status.NetworkID).Delete(ctx, id)
-			if err != nil && !netbird.IsNotFound(err) {
+		for _, e := range netResource.Status.Resources {
+			if err := r.Netbird.Networks.Resources(netResource.Status.NetworkID).Delete(ctx, e.ResourceID); err != nil && !netbird.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
 		}
@@ -411,14 +356,7 @@ func (r *NetworkResourceReconciler) reconcileDelete(ctx context.Context, sp *pat
 				return ctrl.Result{}, err
 			}
 		}
-		if netResource.Status.DNSRecordID != "" {
-			if err := r.Netbird.DNSZones.DeleteRecord(ctx, netResource.Status.DNSZoneID, netResource.Status.DNSRecordID); err != nil && !netbird.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-		}
 	}
-
-	staleNetworkResources.DeleteLabelValues(netResource.Namespace, netResource.Name)
 
 	controllerutil.RemoveFinalizer(netResource, k8sutil.Finalizer("networkresource"))
 	err := sp.Patch(ctx, netResource)

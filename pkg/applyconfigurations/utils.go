@@ -50,6 +50,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.NBServicePolicyStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResource"):
 		return &apiv1alpha1.NetworkResourceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResourceEntry"):
+		return &apiv1alpha1.NetworkResourceEntryApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResourceSpec"):
 		return &apiv1alpha1.NetworkResourceSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResourceStatus"):

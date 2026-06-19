@@ -63,7 +63,7 @@ func (r *TCPRouteReconciler) reconcileParent(ctx context.Context, logger logr.Lo
 	}
 	if !meta.IsStatusConditionTrue(gw.Status.Conditions, string(gwv1.GatewayConditionProgrammed)) {
 		logger.Info("gateway is not ready", "name", gw.ObjectMeta.Name)
-		recordEvent(r.Recorder, tr, corev1.EventTypeWarning, reasonDependencyNotReady,
+		recordEvent(r.Recorder, tr, reasonDependencyNotReady,
 			"Gateway %s is not programmed yet", gw.Name)
 		return nil
 	}

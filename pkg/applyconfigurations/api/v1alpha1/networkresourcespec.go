@@ -5,7 +5,6 @@
 package v1alpha1
 
 import (
-	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -18,14 +17,15 @@ type NetworkResourceSpecApplyConfiguration struct {
 	NetworkRouterRef *CrossNamespaceReferenceApplyConfiguration `json:"networkRouterRef,omitempty"`
 	// ServiceRef is a reference to the service to expose in the Network.
 	// Immutable: re-pointing at a different Service would change the resource's
-	// address/type in place, which the stale-resource drain only handles for
-	// routing-mode changes — create a new NetworkResource instead.
+	// address in place — create a new NetworkResource instead.
 	ServiceRef *v1.LocalObjectReference `json:"serviceRef,omitempty"`
 	// Groups are references to groups that the resource will be a part of.
 	Groups []GroupReferenceApplyConfiguration `json:"groups,omitempty"`
-	// RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN
-	// domain resource). Defaults to ip.
-	RoutingMode *apiv1alpha1.RoutingMode `json:"routingMode,omitempty"`
+	// IPFamilies selects which of the Service's ClusterIP families to expose.
+	// Each selected family gets its own NetBird host resource at that ClusterIP,
+	// so a dualstack Service is reachable over both. Defaults to all of the
+	// Service's ClusterIP families.
+	IPFamilies []v1.IPFamily `json:"ipFamilies,omitempty"`
 }
 
 // NetworkResourceSpecApplyConfiguration constructs a declarative configuration of the NetworkResourceSpec type for use with
@@ -63,10 +63,12 @@ func (b *NetworkResourceSpecApplyConfiguration) WithGroups(values ...*GroupRefer
 	return b
 }
 
-// WithRoutingMode sets the RoutingMode field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the RoutingMode field is set to the value of the last call.
-func (b *NetworkResourceSpecApplyConfiguration) WithRoutingMode(value apiv1alpha1.RoutingMode) *NetworkResourceSpecApplyConfiguration {
-	b.RoutingMode = &value
+// WithIPFamilies adds the given value to the IPFamilies field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the IPFamilies field.
+func (b *NetworkResourceSpecApplyConfiguration) WithIPFamilies(values ...v1.IPFamily) *NetworkResourceSpecApplyConfiguration {
+	for i := range values {
+		b.IPFamilies = append(b.IPFamilies, values[i])
+	}
 	return b
 }

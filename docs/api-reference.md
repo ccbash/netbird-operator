@@ -367,6 +367,25 @@ NetworkResource is the Schema for the networkresources API.
 | `status` _[NetworkResourceStatus](#networkresourcestatus)_ |  | \{ observedGeneration:-1 \} |  |
 
 
+#### NetworkResourceEntry
+
+
+
+NetworkResourceEntry is a NetBird host resource created for one of a Service's
+ClusterIP families.
+
+
+
+_Appears in:_
+- [NetworkResourceStatus](#networkresourcestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `family` _string_ | Family is the IP family ("IPv4" or "IPv6"). |  |  |
+| `address` _string_ | Address is the ClusterIP the resource points at. |  |  |
+| `resourceID` _string_ | ResourceID is the NetBird resource id. |  |  |
+
+
 #### NetworkResourceSpec
 
 
@@ -381,9 +400,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `networkRouterRef` _[CrossNamespaceReference](#crossnamespacereference)_ | NetworkRouterRef is a reference to the network and router where the resource will be created. |  |  |
-| `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef is a reference to the service to expose in the Network.<br />Immutable: re-pointing at a different Service would change the resource's<br />address/type in place, which the stale-resource drain only handles for<br />routing-mode changes — create a new NetworkResource instead. |  |  |
+| `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef is a reference to the service to expose in the Network.<br />Immutable: re-pointing at a different Service would change the resource's<br />address in place — create a new NetworkResource instead. |  |  |
 | `groups` _[GroupReference](#groupreference) array_ | Groups are references to groups that the resource will be a part of. |  | Optional: \{\} <br /> |
-| `routingMode` _[RoutingMode](#routingmode)_ | RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN<br />domain resource). Defaults to ip. | ip | Enum: [ip domain] <br />Optional: \{\} <br /> |
+| `ipFamilies` _[IPFamily](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#ipfamily-v1-core) array_ | IPFamilies selects which of the Service's ClusterIP families to expose.<br />Each selected family gets its own NetBird host resource at that ClusterIP,<br />so a dualstack Service is reachable over both. Defaults to all of the<br />Service's ClusterIP families. |  | items:Enum: [IPv4 IPv6] <br />Optional: \{\} <br /> |
 
 
 #### NetworkResourceStatus
@@ -401,11 +420,9 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the NetworkResource. |  | Optional: \{\} <br /> |
-| `networkID` _string_ | NetworkID is the id of the network the resource is created in. |  | Optional: \{\} <br /> |
-| `resourceID` _string_ | ResourceID is the id of the created resource. |  | Optional: \{\} <br /> |
-| `staleResourceIDs` _string array_ | StaleResourceIDs are previous NetBird resource IDs left over by a<br />routing-mode change: switching host<->domain recreates the resource under a<br />new type, but the old one cannot be deleted while a reverse-proxy service<br />still targets it. The new resource is created first (it has a different<br />address and name, so the two coexist) and the old IDs are drained here on<br />later reconciles, once the proxy has been repointed at the new resource. |  | Optional: \{\} <br /> |
-| `dnsZoneID` _string_ | DNSZoneID is the id of the zone the DNS record is created in. |  | Optional: \{\} <br /> |
-| `dnsRecordID` _string_ | DNSRecordID is the id of the legacy single A record created before<br />dualstack support. Retained only so it can be cleaned up on upgrade;<br />records are now tracked in DNSRecords. |  | Optional: \{\} <br /> |
+| `networkID` _string_ | NetworkID is the id of the network the resources are created in. |  | Optional: \{\} <br /> |
+| `resources` _[NetworkResourceEntry](#networkresourceentry) array_ | Resources are the NetBird host resources created for the Service, one per<br />exposed IP family. |  | Optional: \{\} <br /> |
+| `dnsZoneID` _string_ | DNSZoneID is the id of the zone the DNS records are created in. |  | Optional: \{\} <br /> |
 | `dnsRecords` _[DNSRecordStatus](#dnsrecordstatus) array_ | DNSRecords are the DNS records created for the resource — one A record<br />per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP. |  | Optional: \{\} <br /> |
 
 
@@ -469,24 +486,6 @@ _Appears in:_
 | `routingPeerID` _string_ | RoutingPeerID is the id of the created routing peer. |  | Optional: \{\} <br /> |
 | `networkID` _string_ | NetworkID is the id of the network the routing peer was created in. |  | Optional: \{\} <br /> |
 | `serviceCIDRResources` _[ServiceCIDRResource](#servicecidrresource) array_ | ServiceCIDRResources tracks the subnet network resources created for<br />ServiceCIDRs, for idempotent reconcile and cleanup. |  | Optional: \{\} <br /> |
-
-
-#### RoutingMode
-
-_Underlying type:_ _string_
-
-RoutingMode selects how a Service is exposed as a NetBird network resource.
-
-_Validation:_
-- Enum: [ip domain]
-
-_Appears in:_
-- [NetworkResourceSpec](#networkresourcespec)
-
-| Field | Description |
-| --- | --- |
-| `ip` | RoutingModeIP routes the Service's ClusterIP directly: a host resource +<br />host proxy target. DNS-independent; effectively IPv4 (the primary<br />ClusterIP). This is the conservative default.<br /> |
-| `domain` | RoutingModeDomain routes via the Service FQDN: a domain resource + domain<br />proxy target, resolved through NetBird DNS (the A/AAAA records). Supports<br />dualstack but depends on NetBird DNS resolution.<br /> |
 
 
 #### ServiceCIDRResource

@@ -7,21 +7,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// RoutingMode selects how a Service is exposed as a NetBird network resource.
-// +kubebuilder:validation:Enum=ip;domain
-type RoutingMode string
-
-const (
-	// RoutingModeIP routes the Service's ClusterIP directly: a host resource +
-	// host proxy target. DNS-independent; effectively IPv4 (the primary
-	// ClusterIP). This is the conservative default.
-	RoutingModeIP RoutingMode = "ip"
-	// RoutingModeDomain routes via the Service FQDN: a domain resource + domain
-	// proxy target, resolved through NetBird DNS (the A/AAAA records). Supports
-	// dualstack but depends on NetBird DNS resolution.
-	RoutingModeDomain RoutingMode = "domain"
-)
-
 // NetworkResourceSpec defines the desired state of NetworkResource.
 type NetworkResourceSpec struct {
 	// NetworkRouterRef is a reference to the network and router where the resource will be created.
@@ -30,8 +15,7 @@ type NetworkResourceSpec struct {
 
 	// ServiceRef is a reference to the service to expose in the Network.
 	// Immutable: re-pointing at a different Service would change the resource's
-	// address/type in place, which the stale-resource drain only handles for
-	// routing-mode changes — create a new NetworkResource instead.
+	// address in place — create a new NetworkResource instead.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	ServiceRef corev1.LocalObjectReference `json:"serviceRef"`
 
@@ -39,11 +23,13 @@ type NetworkResourceSpec struct {
 	// +optional
 	Groups []GroupReference `json:"groups,omitempty"`
 
-	// RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN
-	// domain resource). Defaults to ip.
-	// +kubebuilder:default=ip
+	// IPFamilies selects which of the Service's ClusterIP families to expose.
+	// Each selected family gets its own NetBird host resource at that ClusterIP,
+	// so a dualstack Service is reachable over both. Defaults to all of the
+	// Service's ClusterIP families.
 	// +optional
-	RoutingMode RoutingMode `json:"routingMode,omitempty"`
+	// +kubebuilder:validation:items:Enum=IPv4;IPv6
+	IPFamilies []corev1.IPFamily `json:"ipFamilies,omitempty"`
 }
 
 // NetworkResourceStatus defines the observed state of NetworkResource.
@@ -58,37 +44,36 @@ type NetworkResourceStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// NetworkID is the id of the network the resource is created in.
+	// NetworkID is the id of the network the resources are created in.
 	// +optional
 	NetworkID string `json:"networkID,omitempty"`
 
-	// ResourceID is the id of the created resource.
+	// Resources are the NetBird host resources created for the Service, one per
+	// exposed IP family.
 	// +optional
-	ResourceID string `json:"resourceID,omitempty"`
+	Resources []NetworkResourceEntry `json:"resources,omitempty"`
 
-	// StaleResourceIDs are previous NetBird resource IDs left over by a
-	// routing-mode change: switching host<->domain recreates the resource under a
-	// new type, but the old one cannot be deleted while a reverse-proxy service
-	// still targets it. The new resource is created first (it has a different
-	// address and name, so the two coexist) and the old IDs are drained here on
-	// later reconciles, once the proxy has been repointed at the new resource.
-	// +optional
-	StaleResourceIDs []string `json:"staleResourceIDs,omitempty"`
-
-	// DNSZoneID is the id of the zone the DNS record is created in.
+	// DNSZoneID is the id of the zone the DNS records are created in.
 	// +optional
 	DNSZoneID string `json:"dnsZoneID,omitempty"`
-
-	// DNSRecordID is the id of the legacy single A record created before
-	// dualstack support. Retained only so it can be cleaned up on upgrade;
-	// records are now tracked in DNSRecords.
-	// +optional
-	DNSRecordID string `json:"dnsRecordID,omitempty"`
 
 	// DNSRecords are the DNS records created for the resource — one A record
 	// per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP.
 	// +optional
 	DNSRecords []DNSRecordStatus `json:"dnsRecords,omitempty"`
+}
+
+// NetworkResourceEntry is a NetBird host resource created for one of a Service's
+// ClusterIP families.
+type NetworkResourceEntry struct {
+	// Family is the IP family ("IPv4" or "IPv6").
+	Family string `json:"family"`
+
+	// Address is the ClusterIP the resource points at.
+	Address string `json:"address"`
+
+	// ResourceID is the NetBird resource id.
+	ResourceID string `json:"resourceID"`
 }
 
 // DNSRecordStatus tracks a single DNS record managed for a NetworkResource.

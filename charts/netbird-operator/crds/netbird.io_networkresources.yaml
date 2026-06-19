@@ -77,6 +77,21 @@ spec:
                   - message: Exactly one of id, name, or localRef must be set
                     rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
                 type: array
+              ipFamilies:
+                description: |-
+                  IPFamilies selects which of the Service's ClusterIP families to expose.
+                  Each selected family gets its own NetBird host resource at that ClusterIP,
+                  so a dualstack Service is reachable over both. Defaults to all of the
+                  Service's ClusterIP families.
+                items:
+                  description: |-
+                    IPFamily represents the IP Family (IPv4 or IPv6). This type is used
+                    to express the family of an IP expressed by a type (e.g. service.spec.ipFamilies).
+                  enum:
+                  - IPv4
+                  - IPv6
+                  type: string
+                type: array
               networkRouterRef:
                 description: NetworkRouterRef is a reference to the network and router
                   where the resource will be created.
@@ -94,21 +109,11 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
-              routingMode:
-                default: ip
-                description: |-
-                  RoutingMode selects ip (host resource at the ClusterIP) or domain (FQDN
-                  domain resource). Defaults to ip.
-                enum:
-                - ip
-                - domain
-                type: string
               serviceRef:
                 description: |-
                   ServiceRef is a reference to the service to expose in the Network.
                   Immutable: re-pointing at a different Service would change the resource's
-                  address/type in place, which the stale-resource drain only handles for
-                  routing-mode changes — create a new NetworkResource instead.
+                  address in place — create a new NetworkResource instead.
                 properties:
                   name:
                     default: ""
@@ -193,12 +198,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              dnsRecordID:
-                description: |-
-                  DNSRecordID is the id of the legacy single A record created before
-                  dualstack support. Retained only so it can be cleaned up on upgrade;
-                  records are now tracked in DNSRecords.
-                type: string
               dnsRecords:
                 description: |-
                   DNSRecords are the DNS records created for the resource — one A record
@@ -223,30 +222,40 @@ spec:
                   type: object
                 type: array
               dnsZoneID:
-                description: DNSZoneID is the id of the zone the DNS record is created
+                description: DNSZoneID is the id of the zone the DNS records are created
                   in.
                 type: string
               networkID:
-                description: NetworkID is the id of the network the resource is created
-                  in.
+                description: NetworkID is the id of the network the resources are
+                  created in.
                 type: string
               observedGeneration:
                 description: ObservedGeneration is the last reconciled generation.
                 format: int64
                 type: integer
-              resourceID:
-                description: ResourceID is the id of the created resource.
-                type: string
-              staleResourceIDs:
+              resources:
                 description: |-
-                  StaleResourceIDs are previous NetBird resource IDs left over by a
-                  routing-mode change: switching host<->domain recreates the resource under a
-                  new type, but the old one cannot be deleted while a reverse-proxy service
-                  still targets it. The new resource is created first (it has a different
-                  address and name, so the two coexist) and the old IDs are drained here on
-                  later reconciles, once the proxy has been repointed at the new resource.
+                  Resources are the NetBird host resources created for the Service, one per
+                  exposed IP family.
                 items:
-                  type: string
+                  description: |-
+                    NetworkResourceEntry is a NetBird host resource created for one of a Service's
+                    ClusterIP families.
+                  properties:
+                    address:
+                      description: Address is the ClusterIP the resource points at.
+                      type: string
+                    family:
+                      description: Family is the IP family ("IPv4" or "IPv6").
+                      type: string
+                    resourceID:
+                      description: ResourceID is the NetBird resource id.
+                      type: string
+                  required:
+                  - address
+                  - family
+                  - resourceID
+                  type: object
                 type: array
             type: object
         required:
