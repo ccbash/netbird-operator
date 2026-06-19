@@ -109,6 +109,15 @@ rules:
   - get
   - list
   - watch
+# Events are created in the involved object's namespace, which can be any
+# namespace — so this must be cluster-scoped, not a namespaced Role.
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 {{- if or .Values.netbirdAPI.keyFromSecret .Values.clusterSecretsPermissions.allowAllSecrets }}
 - apiGroups:
   - ""
@@ -214,13 +223,6 @@ rules:
   - update
   - patch
   - delete
-- apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

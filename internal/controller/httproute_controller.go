@@ -142,14 +142,17 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 	targets := buildTargets(logger, hr, svcIdx, resourceID, targetType)
 	if err := r.reconcileProxyServices(ctx, hr, targets, policies); err != nil {
 		// A proxy target can reference a NetworkResource that was deleted on the
-		// control plane: the resource ID in the NetworkResource status is then
-		// stale until its controller recreates it. Treat that as transient —
-		// back off and retry rather than logging an error with a stack trace.
-		if netbirdutil.IsTargetNotFound(err) {
-			logger.Info("reverse-proxy target resource not found yet; awaiting recreation", "gateway", gw.Name)
+		// control plane (target not found), or — during a routing-mode switch —
+		// still reference the old-typed resource while the new target type is
+		// applied (target-type mismatch). Both are transient: the NetworkResource
+		// controller recreates/repoints the resource and the watch re-reconciles
+		// this route. Back off and retry rather than logging an error + stack
+		// trace each time.
+		if netbirdutil.IsTargetNotFound(err) || netbirdutil.IsTargetTypeMismatch(err) {
+			logger.Info("reverse-proxy target not ready yet; awaiting resource update", "gateway", gw.Name)
 			recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonProxyTargetMissing,
-				"Reverse-proxy target resource not found yet; awaiting recreation")
-			return ctrl.Result{RequeueAfter: cleanupRetry}, nil
+				"Reverse-proxy target not ready yet (resource recreating/repointing); retrying")
+			return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 		}
 		return ctrl.Result{}, err
 	}

@@ -32,6 +32,20 @@ func IsConflict(err error) bool {
 	return false
 }
 
+// IsTargetTypeMismatch reports whether err is the transient error returned
+// while a routing-mode switch is in flight: the reverse-proxy service was
+// updated with the new target type (host/domain) but the NetworkResource still
+// references the old-typed resource for a moment. It resolves once the
+// resource's status ID is updated to the new-typed resource, so callers back
+// off and retry instead of treating it as a hard failure.
+func IsTargetTypeMismatch(err error) bool {
+	var apiErr *netbird.APIError
+	if errors.As(err, &apiErr) {
+		return strings.Contains(apiErr.Message, "target_type") && strings.Contains(apiErr.Message, "resource is of type")
+	}
+	return false
+}
+
 // IsTargetNotFound reports whether err is a NetBird API 422 (Unprocessable
 // Entity) indicating a referenced target no longer exists — e.g. a reverse-proxy
 // service pointing at a network resource that was deleted out of band. It is a

@@ -36,6 +36,25 @@ func TestIsConflict(t *testing.T) {
 	require.False(t, IsConflict(nil))
 }
 
+func TestIsTargetTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	// The transient routing-mode-switch error.
+	require.True(t, IsTargetTypeMismatch(&netbird.APIError{
+		StatusCode: http.StatusUnprocessableEntity,
+		Message:    `target "res-1" has target_type "host" but resource is of type "domain"`,
+	}))
+	// Wrapped, still recognised.
+	require.True(t, IsTargetTypeMismatch(fmt.Errorf("update proxy: %w", &netbird.APIError{
+		Message: `target_type "domain" but resource is of type "host"`,
+	})))
+
+	// Unrelated validation errors and non-API errors are not this case.
+	require.False(t, IsTargetTypeMismatch(&netbird.APIError{Message: "invalid CIDR"}))
+	require.False(t, IsTargetTypeMismatch(errors.New("target_type")))
+	require.False(t, IsTargetTypeMismatch(nil))
+}
+
 func TestIsTargetNotFound(t *testing.T) {
 	t.Parallel()
 
