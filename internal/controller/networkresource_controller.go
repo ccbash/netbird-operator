@@ -16,6 +16,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,7 +36,8 @@ import (
 type NetworkResourceReconciler struct {
 	client.Client
 
-	Netbird *netbird.Client
+	Netbird  *netbird.Client
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=netbird.io,resources=networkresources,verbs=get;list;watch;create;update;patch;delete
@@ -149,6 +151,9 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	netResource.Status.ResourceID = resourceID
 	if staleID != "" {
 		netResource.Status.StaleResourceIDs = appendUnique(netResource.Status.StaleResourceIDs, staleID)
+		recordEvent(r.Recorder, netResource, corev1.EventTypeNormal, reasonRoutingModeSwitch,
+			"Routing mode changed to %q; created resource %s, draining old resource %s once the reverse-proxy is repointed",
+			netResource.Spec.RoutingMode, resourceID, staleID)
 	}
 	// Persist the new resource ID before draining the old one: the HTTPRoute
 	// controller repoints the reverse-proxy at this ID, which is what finally lets
@@ -167,6 +172,10 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, err
 		}
 		netResource.Status.StaleResourceIDs = remaining
+		if len(remaining) > 0 {
+			recordEvent(r.Recorder, netResource, corev1.EventTypeWarning, reasonAwaitingRelease,
+				"Old resource(s) %v still targeted by a reverse-proxy; retrying deletion", remaining)
+		}
 	}
 
 	// Publish A/AAAA records for the FQDN: one A per IPv4 ClusterIP and one AAAA
@@ -195,6 +204,7 @@ func (r *NetworkResourceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // and patches its status.
 func (r *NetworkResourceReconciler) markNotReady(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource, msg string) error {
 	conditions.MarkFalse(netResource, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "%s", msg)
+	recordEvent(r.Recorder, netResource, corev1.EventTypeWarning, reasonDependencyNotReady, "%s", msg)
 	return sp.Patch(ctx, netResource)
 }
 

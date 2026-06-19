@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,7 +39,8 @@ import (
 type HTTPRouteReconciler struct {
 	client.Client
 
-	Netbird *netbird.Client
+	Netbird  *netbird.Client
+	Recorder record.EventRecorder
 }
 
 func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -109,6 +111,8 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 	missing := missingBackendNames(hr, svcIdx)
 	if len(missing) > 0 {
 		logger.Info("backend Service(s) not found; routing the resolvable backends and retrying", "missing", missing)
+		recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonBackendNotFound,
+			"Backend Service(s) %v not found; routing resolvable backends and retrying", missing)
 	}
 	if len(svcIdx) == 0 {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -144,6 +148,8 @@ func (r *HTTPRouteReconciler) reconcileParent(ctx context.Context, logger logr.L
 		// back off and retry rather than logging an error with a stack trace.
 		if netbirdutil.IsTargetNotFound(err) {
 			logger.Info("reverse-proxy target resource not found yet; awaiting recreation", "gateway", gw.Name)
+			recordEvent(r.Recorder, hr, corev1.EventTypeWarning, reasonProxyTargetMissing,
+				"Reverse-proxy target resource not found yet; awaiting recreation")
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		return ctrl.Result{}, err

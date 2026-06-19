@@ -253,8 +253,9 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		return fmt.Errorf("setup NetworkRouter controller: %w", err)
 	}
 	if err := (&controller.NetworkResourceReconciler{
-		Client:  mgr.GetClient(),
-		Netbird: nbClient,
+		Client:   mgr.GetClient(),
+		Netbird:  nbClient,
+		Recorder: mgr.GetEventRecorderFor("networkresource"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup NetworkResource controller: %w", err)
 	}
@@ -280,8 +281,9 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		return fmt.Errorf("setup Gateway controller: %w", err)
 	}
 	if err := (&controller.HTTPRouteReconciler{
-		Client:  mgr.GetClient(),
-		Netbird: nbClient,
+		Client:   mgr.GetClient(),
+		Netbird:  nbClient,
+		Recorder: mgr.GetEventRecorderFor("httproute"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup HTTPRoute controller: %w", err)
 	}
