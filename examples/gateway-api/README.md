@@ -76,6 +76,7 @@ via `spec.upstream`:
 * `ip` — the proxy dials the Service ClusterIP directly (single address family,
   DNS-independent).
 
-In both cases the proxy connects over its embedded NetBird client; no per-Service
-NetBird resource is created for HTTP. (`TCPRoute` L4 exposure instead creates a
-host `NetworkResource` per ClusterIP family — see `spec.ipFamilies`.)
+Cluster targets dial the backend directly (NetBird requires direct-upstream), so
+the proxy cluster itself must be able to reach the backend; no per-Service NetBird
+resource is created for HTTP. (`TCPRoute` L4 exposure instead creates a host
+`NetworkResource` per ClusterIP family — see `spec.ipFamilies`.)

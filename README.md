@@ -42,11 +42,14 @@ is managed the same way as the rest of your cluster.
 
 * **HTTP exposure targets a reverse-proxy cluster.** The reverse-proxy service's
   `cluster` targets point at `NBServicePolicy.spec.proxyCluster`, and the proxy
-  dials each backend over its NetBird mesh client — at the Service **FQDN** by
-  default (`upstream: hostname`, so it resolves the A/AAAA records via NetBird DNS,
-  IPv4/IPv6 transparent) or the **ClusterIP** (`upstream: ip`). No per-Service
-  NetBird resource is created for HTTP — the proxy reaches the ClusterIP via the
-  router's service-CIDR subnet route.
+  dials each backend **directly** (NetBird requires direct-upstream for cluster
+  targets) — at the Service **FQDN** by default (`upstream: hostname`, so the
+  proxy resolves it via NetBird DNS, IPv4/IPv6 transparent) or the **ClusterIP**
+  (`upstream: ip`). No per-Service NetBird resource is created for HTTP, so the
+  proxy cluster must itself be able to reach the backend: resolve the zone (it
+  must be distributed to the proxy) and reach the ClusterIPs (the Service CIDRs
+  routed via `NetworkRouter.spec.serviceCIDRs`). In practice the cluster is a
+  NetBird-client proxy positioned to reach the cluster.
 * **TCP exposure** (`TCPRoute`) creates one NetBird **host resource per ClusterIP
   family** (`NetworkResource.spec.ipFamilies`, default = the Service's families),
   so a dualstack Service is reachable over both.

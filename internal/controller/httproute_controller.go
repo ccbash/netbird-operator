@@ -242,9 +242,13 @@ func (r *HTTPRouteReconciler) indexBackendServices(ctx context.Context, hr *gwv1
 }
 
 // buildClusterTargets builds one reverse-proxy `cluster` target per backendRef:
-// the proxy cluster (TargetId) dials the backend Host (FQDN or ClusterIP) via
-// its embedded NetBird client. The rule's path prefix is carried so path-based
-// routes (e.g. /push/ -> notify-push, / -> app) resolve to the right backend.
+// the proxy cluster (TargetId) dials the backend Host (FQDN or ClusterIP). The
+// rule's path prefix is carried so path-based routes (e.g. /push/ -> notify-push,
+// / -> app) resolve to the right backend.
+//
+// DirectUpstream is required by NetBird for cluster targets (it dials the Host
+// via its own host network stack — resolving the FQDN / reaching the ClusterIP
+// itself — rather than through a routed mesh resource).
 func buildClusterTargets(logger logr.Logger, hr *gwv1.HTTPRoute, svcIdx map[string]corev1.Service, hostByService map[string]string, clusterID string) []api.ServiceTarget {
 	targets := []api.ServiceTarget{}
 	for _, rule := range hr.Spec.Rules {
@@ -270,6 +274,7 @@ func buildClusterTargets(logger logr.Logger, hr *gwv1.HTTPRoute, svcIdx map[stri
 				Protocol:   api.ServiceTargetProtocolHttp,
 				TargetId:   clusterID,
 				TargetType: api.ServiceTargetTargetTypeCluster,
+				Options:    &api.ServiceTargetOptions{DirectUpstream: new(true)},
 			})
 		}
 	}

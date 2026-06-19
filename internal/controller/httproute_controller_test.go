@@ -162,6 +162,10 @@ var _ = Describe("HTTPRoute Controller", func() {
 			Expect(target.Host).NotTo(BeNil())
 			Expect(*target.Host).To(Equal(fmt.Sprintf("app-svc-%s.cluster.local", ns)))
 			Expect(target.Port).To(Equal(80))
+			// NetBird rejects cluster targets without direct upstream enabled.
+			Expect(target.Options).NotTo(BeNil())
+			Expect(target.Options.DirectUpstream).NotTo(BeNil())
+			Expect(*target.Options.DirectUpstream).To(BeTrue())
 
 			// DNS A record published for the backend FQDN.
 			zones, err := nbClient.DNSZones.ListZones(ctx)
