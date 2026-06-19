@@ -319,7 +319,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `targetRefs` _LocalPolicyTargetReference array_ | TargetRefs identify the HTTPRoute(s) this policy attaches to, following<br />the Gateway API direct policy-attachment pattern (GEP-713). Each target<br />must be an HTTPRoute in the same namespace as the policy. |  | MaxItems: 16 <br />MinItems: 1 <br /> |
-| `routingMode` _[RoutingMode](#routingmode)_ | RoutingMode selects how the targeted route's backends are exposed: "ip"<br />(host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN<br />domain resource with A/AAAA — dualstack via NetBird DNS). When unset the<br />route defaults to ip. |  | Enum: [ip domain] <br />Optional: \{\} <br /> |
+| `proxyCluster` _string_ | ProxyCluster is the address of the NetBird reverse-proxy cluster that serves<br />the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a<br />proxy-cluster ID and points the reverse-proxy targets at it. Required for<br />HTTP exposure. |  | Optional: \{\} <br /> |
+| `upstream` _[UpstreamMode](#upstreammode)_ | Upstream selects how the reverse-proxy cluster reaches the backend Service:<br />"hostname" (default) targets the Service FQDN so the proxy resolves it via<br />NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly. | hostname | Enum: [hostname ip] <br />Optional: \{\} <br /> |
+| `routingMode` _[RoutingMode](#routingmode)_ | RoutingMode is deprecated and ignored — HTTP exposure now uses reverse-proxy<br />cluster targets (see ProxyCluster/Upstream). It is scheduled for removal.<br />Deprecated: use ProxyCluster/Upstream; this field no longer has any effect. |  | Enum: [ip domain] <br />Optional: \{\} <br /> |
 | `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. Requires an HTTP service. |  | Optional: \{\} <br /> |
 | `accessGroups` _[GroupReference](#groupreference) array_ | AccessGroups are the NetBird groups whose peers may reach a private<br />service over the tunnel, referenced by name, id or local Group reference<br />and resolved the same way as NetworkRouter.resourceGroups. Required when<br />Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
 | `crowdsecMode` _[CrowdsecMode](#crowdsecmode)_ | CrowdsecMode sets the CrowdSec IP-reputation handling for the service. |  | Enum: [off observe enforce] <br />Optional: \{\} <br /> |
@@ -621,6 +623,24 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the SidecarProfile. |  | Optional: \{\} <br /> |
+
+
+#### UpstreamMode
+
+_Underlying type:_ _string_
+
+UpstreamMode selects how the reverse-proxy cluster reaches the backend Service.
+
+_Validation:_
+- Enum: [hostname ip]
+
+_Appears in:_
+- [NBServicePolicySpec](#nbservicepolicyspec)
+
+| Field | Description |
+| --- | --- |
+| `hostname` | UpstreamModeHostname targets the Service FQDN, so the proxy resolves it via<br />NetBird DNS (A/AAAA) — IPv4/IPv6 transparent. The default.<br /> |
+| `ip` | UpstreamModeIP targets the Service ClusterIP directly (single address<br />family, DNS-independent).<br /> |
 
 
 #### WorkloadOverride

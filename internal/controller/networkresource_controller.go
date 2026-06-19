@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -347,19 +346,6 @@ func recordMatchKey(recordType, content string) string {
 // ("identical record already exists") or a spurious delete. Only stale records
 // at this exact fqdn are removed; records under other names are untouched.
 func (r *NetworkResourceReconciler) reconcileDNSRecords(ctx context.Context, sp *patch.SerialPatcher, netResource *nbv1alpha1.NetworkResource, zone api.Zone, fqdn string, clusterIPs []string) error {
-	type desiredRecord struct {
-		rType   api.DNSRecordType
-		content string
-	}
-	var desired []desiredRecord
-	for _, ip := range clusterIPs {
-		rType, ok := dnsRecordTypeFor(ip)
-		if !ok {
-			continue
-		}
-		desired = append(desired, desiredRecord{rType, ip})
-	}
-
 	// On a zone change, drop records tracked in the old zone first.
 	if netResource.Status.DNSZoneID != "" && netResource.Status.DNSZoneID != zone.Id {
 		for _, rec := range netResource.Status.DNSRecords {
@@ -386,54 +372,19 @@ func (r *NetworkResourceReconciler) reconcileDNSRecords(ctx context.Context, sp 
 		netResource.Status.DNSRecordID = ""
 	}
 
-	// Index the zone's live records that belong to this resource (name == fqdn),
-	// so we can adopt existing ones rather than creating duplicates.
-	zoneRecords, err := r.Netbird.DNSZones.ListRecords(ctx, zone.Id)
+	// Reconcile the records against the live zone (adopt/create/delete) via the
+	// shared stateless helper, then record what's present in status.
+	kept, err := reconcileZoneRecords(ctx, r.Netbird, zone.Id, fqdn, clusterIPs)
 	if err != nil {
 		return err
 	}
-	existing := map[string]api.DNSRecord{}
-	var ours []api.DNSRecord
-	for _, rec := range zoneRecords {
-		if rec.Name != fqdn {
-			continue
-		}
-		ours = append(ours, rec)
-		existing[recordMatchKey(string(rec.Type), rec.Content)] = rec
-	}
 
-	kept := make([]nbv1alpha1.DNSRecordStatus, 0, len(desired))
-	desiredKeys := map[string]bool{}
-	for _, d := range desired {
-		key := recordMatchKey(string(d.rType), d.content)
-		desiredKeys[key] = true
-		if cur, ok := existing[key]; ok {
-			kept = append(kept, nbv1alpha1.DNSRecordStatus{Type: string(d.rType), Content: d.content, ID: cur.Id})
-			continue
-		}
-		resp, err := r.Netbird.DNSZones.CreateRecord(ctx, zone.Id, api.DNSRecordRequest{
-			Content: d.content,
-			Name:    fqdn,
-			Ttl:     int(5 * time.Minute / time.Second),
-			Type:    d.rType,
-		})
-		if err != nil {
-			return err
-		}
-		kept = append(kept, nbv1alpha1.DNSRecordStatus{Type: string(d.rType), Content: d.content, ID: resp.Id})
+	records := make([]nbv1alpha1.DNSRecordStatus, 0, len(kept))
+	for _, rec := range kept {
+		records = append(records, nbv1alpha1.DNSRecordStatus{Type: string(rec.Type), Content: rec.Content, ID: rec.Id})
 	}
-
-	// Delete stale records at this fqdn (e.g. a previous ClusterIP).
-	for _, rec := range ours {
-		if !desiredKeys[recordMatchKey(string(rec.Type), rec.Content)] {
-			if err := r.Netbird.DNSZones.DeleteRecord(ctx, zone.Id, rec.Id); err != nil && !netbird.IsNotFound(err) {
-				return err
-			}
-		}
-	}
-
 	netResource.Status.DNSZoneID = zone.Id
-	netResource.Status.DNSRecords = kept
+	netResource.Status.DNSRecords = records
 	return sp.Patch(ctx, netResource)
 }
 

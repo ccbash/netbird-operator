@@ -153,6 +153,13 @@ spec:
                   authenticate via their tunnel identity (no OIDC) and an ACL policy is
                   auto-generated from AccessGroups. Requires an HTTP service.
                 type: boolean
+              proxyCluster:
+                description: |-
+                  ProxyCluster is the address of the NetBird reverse-proxy cluster that serves
+                  the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a
+                  proxy-cluster ID and points the reverse-proxy targets at it. Required for
+                  HTTP exposure.
+                type: string
               rewriteRedirects:
                 description: |-
                   RewriteRedirects, when true, rewrites Location headers in backend
@@ -160,10 +167,10 @@ spec:
                 type: boolean
               routingMode:
                 description: |-
-                  RoutingMode selects how the targeted route's backends are exposed: "ip"
-                  (host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN
-                  domain resource with A/AAAA — dualstack via NetBird DNS). When unset the
-                  route defaults to ip.
+                  RoutingMode is deprecated and ignored — HTTP exposure now uses reverse-proxy
+                  cluster targets (see ProxyCluster/Upstream). It is scheduled for removal.
+
+                  Deprecated: use ProxyCluster/Upstream; this field no longer has any effect.
                 enum:
                 - ip
                 - domain
@@ -208,6 +215,16 @@ spec:
                 x-kubernetes-validations:
                 - message: targetRefs must reference HTTPRoute in group gateway.networking.k8s.io
                   rule: self.all(t, t.kind == 'HTTPRoute' && (t.group == 'gateway.networking.k8s.io'))
+              upstream:
+                default: hostname
+                description: |-
+                  Upstream selects how the reverse-proxy cluster reaches the backend Service:
+                  "hostname" (default) targets the Service FQDN so the proxy resolves it via
+                  NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
+                enum:
+                - hostname
+                - ip
+                type: string
             required:
             - targetRefs
             type: object

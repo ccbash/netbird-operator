@@ -18,6 +18,19 @@ const (
 	CrowdsecModeEnforce CrowdsecMode = "enforce"
 )
 
+// UpstreamMode selects how the reverse-proxy cluster reaches the backend Service.
+// +kubebuilder:validation:Enum=hostname;ip
+type UpstreamMode string
+
+const (
+	// UpstreamModeHostname targets the Service FQDN, so the proxy resolves it via
+	// NetBird DNS (A/AAAA) — IPv4/IPv6 transparent. The default.
+	UpstreamModeHostname UpstreamMode = "hostname"
+	// UpstreamModeIP targets the Service ClusterIP directly (single address
+	// family, DNS-independent).
+	UpstreamModeIP UpstreamMode = "ip"
+)
+
 // AccessRestrictions are connection-level restrictions based on IP address or
 // geography, applied to the reverse-proxy service.
 type AccessRestrictions struct {
@@ -63,10 +76,24 @@ type NBServicePolicySpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.all(t, t.kind == 'HTTPRoute' && (t.group == 'gateway.networking.k8s.io'))",message="targetRefs must reference HTTPRoute in group gateway.networking.k8s.io"
 	TargetRefs []gwv1.LocalPolicyTargetReference `json:"targetRefs"`
 
-	// RoutingMode selects how the targeted route's backends are exposed: "ip"
-	// (host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN
-	// domain resource with A/AAAA — dualstack via NetBird DNS). When unset the
-	// route defaults to ip.
+	// ProxyCluster is the address of the NetBird reverse-proxy cluster that serves
+	// the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a
+	// proxy-cluster ID and points the reverse-proxy targets at it. Required for
+	// HTTP exposure.
+	// +optional
+	ProxyCluster string `json:"proxyCluster,omitempty"`
+
+	// Upstream selects how the reverse-proxy cluster reaches the backend Service:
+	// "hostname" (default) targets the Service FQDN so the proxy resolves it via
+	// NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
+	// +kubebuilder:default=hostname
+	// +optional
+	Upstream UpstreamMode `json:"upstream,omitempty"`
+
+	// RoutingMode is deprecated and ignored — HTTP exposure now uses reverse-proxy
+	// cluster targets (see ProxyCluster/Upstream). It is scheduled for removal.
+	//
+	// Deprecated: use ProxyCluster/Upstream; this field no longer has any effect.
 	// +optional
 	RoutingMode RoutingMode `json:"routingMode,omitempty"`
 

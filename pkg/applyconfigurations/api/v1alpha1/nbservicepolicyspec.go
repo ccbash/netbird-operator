@@ -18,10 +18,19 @@ type NBServicePolicySpecApplyConfiguration struct {
 	// the Gateway API direct policy-attachment pattern (GEP-713). Each target
 	// must be an HTTPRoute in the same namespace as the policy.
 	TargetRefs []v1.LocalPolicyTargetReference `json:"targetRefs,omitempty"`
-	// RoutingMode selects how the targeted route's backends are exposed: "ip"
-	// (host resource at the ClusterIP — DNS-independent, IPv4) or "domain" (FQDN
-	// domain resource with A/AAAA — dualstack via NetBird DNS). When unset the
-	// route defaults to ip.
+	// ProxyCluster is the address of the NetBird reverse-proxy cluster that serves
+	// the targeted route(s), e.g. "gate.ccbash.de". The operator resolves it to a
+	// proxy-cluster ID and points the reverse-proxy targets at it. Required for
+	// HTTP exposure.
+	ProxyCluster *string `json:"proxyCluster,omitempty"`
+	// Upstream selects how the reverse-proxy cluster reaches the backend Service:
+	// "hostname" (default) targets the Service FQDN so the proxy resolves it via
+	// NetBird DNS (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
+	Upstream *apiv1alpha1.UpstreamMode `json:"upstream,omitempty"`
+	// RoutingMode is deprecated and ignored — HTTP exposure now uses reverse-proxy
+	// cluster targets (see ProxyCluster/Upstream). It is scheduled for removal.
+	//
+	// Deprecated: use ProxyCluster/Upstream; this field no longer has any effect.
 	RoutingMode *apiv1alpha1.RoutingMode `json:"routingMode,omitempty"`
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
@@ -57,6 +66,22 @@ func (b *NBServicePolicySpecApplyConfiguration) WithTargetRefs(values ...v1.Loca
 	for i := range values {
 		b.TargetRefs = append(b.TargetRefs, values[i])
 	}
+	return b
+}
+
+// WithProxyCluster sets the ProxyCluster field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProxyCluster field is set to the value of the last call.
+func (b *NBServicePolicySpecApplyConfiguration) WithProxyCluster(value string) *NBServicePolicySpecApplyConfiguration {
+	b.ProxyCluster = &value
+	return b
+}
+
+// WithUpstream sets the Upstream field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Upstream field is set to the value of the last call.
+func (b *NBServicePolicySpecApplyConfiguration) WithUpstream(value apiv1alpha1.UpstreamMode) *NBServicePolicySpecApplyConfiguration {
+	b.Upstream = &value
 	return b
 }
 
