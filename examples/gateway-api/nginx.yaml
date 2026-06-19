@@ -16,9 +16,9 @@ spec:
         - name: nginx
           port: 80
 ---
-# Configures the reverse-proxy service for the HTTPRoute above. Optional — a
-# route with no NBServicePolicy defaults to routingMode: ip. Fields here are
-# applied to the NetBird proxy service and won't be reset on reconcile.
+# Configures the reverse-proxy service for the HTTPRoute above. proxyCluster is
+# required for HTTP exposure. Other fields are applied to the NetBird proxy
+# service and won't be reset on reconcile.
 apiVersion: netbird.io/v1alpha1
 kind: NBServicePolicy
 metadata:
@@ -29,8 +29,9 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       name: nginx
-  routingMode: ip          # or "domain" for dualstack via the FQDN + A/AAAA
-  crowdsecMode: observe    # off | observe | enforce
+  proxyCluster: gate.example.com   # your NetBird reverse-proxy cluster address
+  upstream: hostname               # hostname (proxy resolves the FQDN; dualstack) | ip
+  crowdsecMode: observe            # off | observe | enforce
 ---
 apiVersion: apps/v1
 kind: Deployment

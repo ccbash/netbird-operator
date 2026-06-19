@@ -7,8 +7,8 @@ spec:
   dnsZoneRef:
     name: cluster.local
   # Route the cluster Service CIDR(s) into the network as subnet resources so
-  # ClusterIPs are reachable through the routing peers (needed for domain
-  # routingMode; harmless otherwise). Use your cluster's actual Service CIDR(s).
+  # ClusterIPs are reachable through the routing peers (the reverse proxy and L4
+  # peers reach Services this way). Use your cluster's actual Service CIDR(s).
   serviceCIDRs:
     - 10.96.0.0/12
   # Groups assigned to the network's resources so access policies can target

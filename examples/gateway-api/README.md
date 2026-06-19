@@ -49,8 +49,8 @@ kubectl apply -f ./examples/gateway-api/gateway.yaml
 
 Deploy the test Nginx app with an `HTTPRoute` and an `NBServicePolicy`. The
 `HTTPRoute` publishes the Service through the public reverse proxy; the
-`NBServicePolicy` configures that proxy service (here: `routingMode` and a
-CrowdSec mode).
+`NBServicePolicy` configures that proxy service (here: the `proxyCluster`,
+`upstream` form, and a CrowdSec mode).
 
 ```shell
 kubectl apply -f ./examples/gateway-api/nginx.yaml
@@ -63,17 +63,19 @@ Expose the Kubernetes API server as a private (L4) network resource via a
 kubectl apply -f ./examples/gateway-api/kubernetes.yaml
 ```
 
-## Routing modes
+## Upstream form
 
-An `NBServicePolicy` attached to an `HTTPRoute` selects how its backends are
-exposed via `spec.routingMode`:
+For HTTP exposure the `NBServicePolicy` names the reverse-proxy cluster
+(`spec.proxyCluster`, required) and selects how the proxy reaches each backend
+via `spec.upstream`:
 
-* `ip` (default) — a host resource at the Service ClusterIP with a host proxy
-  target. DNS-independent, IPv4. Robust; the recommended default.
-* `domain` — a domain resource at the Service FQDN (`<svc>-<ns>.<zone>`) with a
-  domain proxy target and A/AAAA records. Dualstack, but the routing peer / proxy
-  must be able to resolve the zone via NetBird DNS, which requires the zone to be
-  distributed to that peer and the Service CIDRs to be routed
-  (`NetworkRouter.spec.serviceCIDRs`).
+* `hostname` (default) — the proxy dials the Service FQDN (`<svc>-<ns>.<zone>`)
+  and resolves it via NetBird DNS (A/AAAA), so IPv4/IPv6 is transparent. The zone
+  must be distributed to the proxy cluster, and the Service CIDRs routed
+  (`NetworkRouter.spec.serviceCIDRs`), for the proxy to reach the ClusterIP.
+* `ip` — the proxy dials the Service ClusterIP directly (single address family,
+  DNS-independent).
 
-When no `NBServicePolicy` targets a route, it defaults to `ip`.
+In both cases the proxy connects over its embedded NetBird client; no per-Service
+NetBird resource is created for HTTP. (`TCPRoute` L4 exposure instead creates a
+host `NetworkResource` per ClusterIP family — see `spec.ipFamilies`.)

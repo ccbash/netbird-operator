@@ -31,30 +31,30 @@ is managed the same way as the rest of your cluster.
 * **Per-route policy** (`NBServicePolicy`, GEP-713 direct attachment) configures
   the reverse-proxy service for the route(s) it targets — and keeps the settings
   applied, instead of them being reset on each reconcile:
+  * `proxyCluster` — the NetBird reverse-proxy cluster that serves the route (e.g. `gate.example.com`)
+  * `upstream` — `hostname` (default) or `ip` (see below)
   * `private` + `accessGroups`
   * `crowdsecMode` — `off` / `observe` / `enforce`
   * `accessRestrictions` — allowed/blocked CIDRs and ISO-3166 country codes
   * `passHostHeader`, `rewriteRedirects`
-  * `routingMode` — see below
 
 **Routing & DNS**
 
-* **Selectable routing mode** per service (`NBServicePolicy.spec.routingMode`,
-  default `ip`):
-
-  | Mode | NetBird resource | Proxy target | DNS at request time | Address family |
-  |------|------------------|--------------|---------------------|----------------|
-  | `ip` (default) | host @ Service ClusterIP | `host` | none | IPv4 |
-  | `domain` | domain @ Service FQDN | `domain` | resolved via NetBird DNS | dualstack (A + AAAA) |
-
-  `ip` is robust and DNS-independent. `domain` enables dualstack but the proxy/peer
-  must resolve the zone via NetBird DNS — which requires the Service CIDRs to be
-  routed and the DNS zone to be distributed to that peer (see below).
-* **Dualstack DNS** — per service, an **A** record per IPv4 and an **AAAA** per
-  IPv6 `ClusterIP` are published under `<svc>-<ns>.<zone>` (a single label, which
-  NetBird's managed zones serve). Records are reconciled against the live zone, so
-  they're adopted rather than recreated, and the resource is recreated only when
-  its type actually has to change.
+* **HTTP exposure targets a reverse-proxy cluster.** The reverse-proxy service's
+  `cluster` targets point at `NBServicePolicy.spec.proxyCluster`, and the proxy
+  dials each backend over its NetBird mesh client — at the Service **FQDN** by
+  default (`upstream: hostname`, so it resolves the A/AAAA records via NetBird DNS,
+  IPv4/IPv6 transparent) or the **ClusterIP** (`upstream: ip`). No per-Service
+  NetBird resource is created for HTTP — the proxy reaches the ClusterIP via the
+  router's service-CIDR subnet route.
+* **TCP exposure** (`TCPRoute`) creates one NetBird **host resource per ClusterIP
+  family** (`NetworkResource.spec.ipFamilies`, default = the Service's families),
+  so a dualstack Service is reachable over both.
+* **DNS** — per service, an **A** record per IPv4 and an **AAAA** per IPv6
+  `ClusterIP` are published under `<svc>-<ns>.<zone>` (a single label, which
+  NetBird's managed zones serve), reconciled against the live zone so they're
+  adopted rather than recreated. For `upstream: hostname` the proxy resolves these,
+  so the DNS zone must be distributed to the proxy cluster.
 * **Service-CIDR routing** — `NetworkRouter.spec.serviceCIDRs` routes the
   cluster's Service CIDRs into the NetBird network as subnet resources so
   ClusterIPs are reachable through the routing peers. `NetworkRouter.spec.resourceGroups`
@@ -69,12 +69,12 @@ is managed the same way as the rest of your cluster.
 * A single **`GatewayClass`** — `netbird` — is provided by the operator; the
   route kind (not the class) selects L7 vs L4. A `Gateway` of that class
   attaches to the router.
-* A **`Service`** is exposed by attaching an **`HTTPRoute`** (public) or
-  **`TCPRoute`** (private) to the matching `Gateway`. The operator creates a
-  `NetworkResource` for each backend Service and, for HTTP routes, a reverse-proxy
-  service whose targets point at those resources.
-* An **`NBServicePolicy`** attached to an `HTTPRoute` (via `targetRefs`) tunes the
-  reverse-proxy service and selects the routing mode.
+* A **`Service`** is exposed by attaching an **`HTTPRoute`** (public reverse proxy)
+  or **`TCPRoute`** (private L4) to the matching `Gateway`. For HTTP the operator
+  upserts a reverse-proxy service whose `cluster` targets dial the backends
+  directly; for TCP it creates a `NetworkResource` (a host resource per IP family).
+* An **`NBServicePolicy`** attached to an `HTTPRoute` (via `targetRefs`) selects the
+  reverse-proxy cluster (`proxyCluster`) and upstream form, and tunes the service.
 
 ## Quick start
 
@@ -125,7 +125,8 @@ kind: NBServicePolicy
 metadata: { name: app, namespace: default }
 spec:
   targetRefs: [{ group: gateway.networking.k8s.io, kind: HTTPRoute, name: app }]
-  routingMode: ip          # or "domain" for dualstack
+  proxyCluster: gate.example.com   # your NetBird reverse-proxy cluster
+  upstream: hostname               # proxy resolves the Service FQDN (or "ip")
   crowdsecMode: observe
 ```
 
@@ -139,8 +140,8 @@ for management-side setup.
 | Kind | API Version | Purpose |
 |------|-------------|---------|
 | [NetworkRouter](docs/api-reference.md#networkrouter) | `netbird.io/v1alpha1` | Network + routing peer, DNS zone, service CIDRs, resource groups |
-| [NetworkResource](docs/api-reference.md#networkresource) | `netbird.io/v1alpha1` | A Service exposed in the network (host or domain) |
-| [NBServicePolicy](docs/api-reference.md#nbservicepolicy) | `netbird.io/v1alpha1` | Per-route reverse-proxy config + routing mode |
+| [NetworkResource](docs/api-reference.md#networkresource) | `netbird.io/v1alpha1` | A Service exposed in the network as L4 host resources (one per IP family) |
+| [NBServicePolicy](docs/api-reference.md#nbservicepolicy) | `netbird.io/v1alpha1` | Per-route reverse-proxy config (proxy cluster, upstream, access) |
 | [Group](docs/api-reference.md#group) | `netbird.io/v1alpha1` | NetBird group |
 | [SetupKey](docs/api-reference.md#setupkey) | `netbird.io/v1alpha1` | Setup key |
 | [SidecarProfile](docs/api-reference.md#sidecarprofile) | `netbird.io/v1alpha1` | Sidecar peer injection profile |
