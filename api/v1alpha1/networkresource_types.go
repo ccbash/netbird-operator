@@ -62,6 +62,15 @@ type NetworkResourceStatus struct {
 	// +optional
 	ResourceID string `json:"resourceID,omitempty"`
 
+	// StaleResourceIDs are previous NetBird resource IDs left over by a
+	// routing-mode change: switching host<->domain recreates the resource under a
+	// new type, but the old one cannot be deleted while a reverse-proxy service
+	// still targets it. The new resource is created first (it has a different
+	// address and name, so the two coexist) and the old IDs are drained here on
+	// later reconciles, once the proxy has been repointed at the new resource.
+	// +optional
+	StaleResourceIDs []string `json:"staleResourceIDs,omitempty"`
+
 	// DNSZoneID is the id of the zone the DNS record is created in.
 	// +optional
 	DNSZoneID string `json:"dnsZoneID,omitempty"`

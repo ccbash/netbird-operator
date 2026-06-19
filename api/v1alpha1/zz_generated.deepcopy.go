@@ -590,6 +590,11 @@ func (in *NetworkResourceStatus) DeepCopyInto(out *NetworkResourceStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.StaleResourceIDs != nil {
+		in, out := &in.StaleResourceIDs, &out.StaleResourceIDs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.DNSRecords != nil {
 		in, out := &in.DNSRecords, &out.DNSRecords
 		*out = make([]DNSRecordStatus, len(*in))

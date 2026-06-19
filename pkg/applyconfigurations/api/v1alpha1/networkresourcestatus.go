@@ -21,6 +21,13 @@ type NetworkResourceStatusApplyConfiguration struct {
 	NetworkID *string `json:"networkID,omitempty"`
 	// ResourceID is the id of the created resource.
 	ResourceID *string `json:"resourceID,omitempty"`
+	// StaleResourceIDs are previous NetBird resource IDs left over by a
+	// routing-mode change: switching host<->domain recreates the resource under a
+	// new type, but the old one cannot be deleted while a reverse-proxy service
+	// still targets it. The new resource is created first (it has a different
+	// address and name, so the two coexist) and the old IDs are drained here on
+	// later reconciles, once the proxy has been repointed at the new resource.
+	StaleResourceIDs []string `json:"staleResourceIDs,omitempty"`
 	// DNSZoneID is the id of the zone the DNS record is created in.
 	DNSZoneID *string `json:"dnsZoneID,omitempty"`
 	// DNSRecordID is the id of the legacy single A record created before
@@ -72,6 +79,16 @@ func (b *NetworkResourceStatusApplyConfiguration) WithNetworkID(value string) *N
 // If called multiple times, the ResourceID field is set to the value of the last call.
 func (b *NetworkResourceStatusApplyConfiguration) WithResourceID(value string) *NetworkResourceStatusApplyConfiguration {
 	b.ResourceID = &value
+	return b
+}
+
+// WithStaleResourceIDs adds the given value to the StaleResourceIDs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the StaleResourceIDs field.
+func (b *NetworkResourceStatusApplyConfiguration) WithStaleResourceIDs(values ...string) *NetworkResourceStatusApplyConfiguration {
+	for i := range values {
+		b.StaleResourceIDs = append(b.StaleResourceIDs, values[i])
+	}
 	return b
 }
 

@@ -7,14 +7,30 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 )
+
+// resourceTypeForAddress mimics NetBird deriving a network resource's type from
+// its address: a bare IP or a single-host prefix (/32, /128) is a host, and
+// anything else (a domain name) is a domain.
+func resourceTypeForAddress(address string) api.NetworkResourceType {
+	host := address
+	if ip, _, err := net.ParseCIDR(address); err == nil {
+		host = ip.String()
+	}
+	if net.ParseIP(strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")) != nil {
+		return api.NetworkResourceTypeHost
+	}
+	return api.NetworkResourceTypeDomain
+}
 
 func Client() *netbird.Client {
 	mux := &http.ServeMux{}
@@ -52,6 +68,11 @@ func Client() *netbird.Client {
 		output.Address = input.Address
 		output.Description = input.Description
 		output.Enabled = input.Enabled
+		// NetBird derives the resource type from its address: a bare IP (or /32,
+		// /128 prefix) is a host, anything else is treated as a domain here (the
+		// operator only creates host and domain resources). Mirroring that lets
+		// tests exercise the routing-mode switch, which keys off the live type.
+		output.Type = resourceTypeForAddress(input.Address)
 		return output
 	})
 	addHandler(mux, "dns/zones", func(id string, input api.ZoneRequest, output api.Zone) api.Zone {

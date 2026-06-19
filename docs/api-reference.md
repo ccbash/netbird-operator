@@ -402,6 +402,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the NetworkResource. |  | Optional: \{\} <br /> |
 | `networkID` _string_ | NetworkID is the id of the network the resource is created in. |  | Optional: \{\} <br /> |
 | `resourceID` _string_ | ResourceID is the id of the created resource. |  | Optional: \{\} <br /> |
+| `staleResourceIDs` _string array_ | StaleResourceIDs are previous NetBird resource IDs left over by a<br />routing-mode change: switching host<->domain recreates the resource under a<br />new type, but the old one cannot be deleted while a reverse-proxy service<br />still targets it. The new resource is created first (it has a different<br />address and name, so the two coexist) and the old IDs are drained here on<br />later reconciles, once the proxy has been repointed at the new resource. |  | Optional: \{\} <br /> |
 | `dnsZoneID` _string_ | DNSZoneID is the id of the zone the DNS record is created in. |  | Optional: \{\} <br /> |
 | `dnsRecordID` _string_ | DNSRecordID is the id of the legacy single A record created before<br />dualstack support. Retained only so it can be cleaned up on upgrade;<br />records are now tracked in DNSRecords. |  | Optional: \{\} <br /> |
 | `dnsRecords` _[DNSRecordStatus](#dnsrecordstatus) array_ | DNSRecords are the DNS records created for the resource — one A record<br />per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP. |  | Optional: \{\} <br /> |
