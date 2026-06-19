@@ -155,10 +155,12 @@ Every object has exactly one job; nothing is duplicated.
 
 ## Open points
 
-- **`DNSZone.distributionGroups` wiring.** The Gateway creates the zone before
-  any `ReverseProxyService` names a proxy cluster. Decide whether the Gateway
-  distributes to a configured/`All` group, or the `ReverseProxyService` patches
-  the zone's distribution groups to include its proxy cluster.
+- **`DNSZone.distributionGroups` wiring.** The Gateway distributes its zone to
+  the built-in `All` group, so any reverse-proxy cluster fronting a route can
+  resolve the per-service records (and so can mesh peers). This is broad but
+  matches a single-owner internal zone; a tighter design — the
+  `ReverseProxyService` adding only its proxy cluster's group to the zone — is a
+  future refinement.
 - **Migration.** Pre-1.0 — clean break, no automated migration (done by hand).
 - **`SidecarProfile` / `ClusterProxy`** are out of scope for this redesign and
   unchanged.

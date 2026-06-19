@@ -131,15 +131,18 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// DNS zone for the listener hostname, distributed to the router peers.
+	// DNS zone for the listener hostname. Distributed to the built-in "All"
+	// group so every peer — the routing peers and any reverse-proxy cluster
+	// fronting a route — can resolve the per-service records (reaching them
+	// still requires routes and policy). Tighter per-proxy distribution is a
+	// future refinement (see docs/architecture.md).
 	zoneAC := nbv1alpha1ac.DNSZone(gatewayDNSZoneName(gw), gw.Namespace).
 		WithOwnerReferences(ownerRef).
 		WithSpec(nbv1alpha1ac.DNSZoneSpec().
 			WithName(hostname).
 			WithDomain(hostname).
 			WithEnabled(true).
-			WithDistributionGroups(nbv1alpha1ac.GroupReference().
-				WithLocalRef(corev1.LocalObjectReference{Name: routerName})),
+			WithDistributionGroups(nbv1alpha1ac.GroupReference().WithName("All")),
 		)
 	if err := r.Apply(ctx, zoneAC, client.ForceOwnership); err != nil {
 		return ctrl.Result{}, err
