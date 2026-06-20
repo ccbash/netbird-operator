@@ -13,8 +13,9 @@ import (
 // ReverseProxyServiceApplyConfiguration represents a declarative configuration of the ReverseProxyService type for use
 // with apply.
 //
-// ReverseProxyService exposes a Gateway-API route's backends through the NetBird
-// reverse proxy. It is the admin's expose-or-not decision.
+// ReverseProxyService publishes LoadBalancer Services through the NetBird
+// reverse proxy, internally or externally. It is the admin's expose-or-not
+// decision.
 type ReverseProxyServiceApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

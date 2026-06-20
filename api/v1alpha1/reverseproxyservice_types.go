@@ -146,8 +146,9 @@ type ReverseProxyServiceStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""
 
-// ReverseProxyService exposes a Gateway-API route's backends through the NetBird
-// reverse proxy. It is the admin's expose-or-not decision.
+// ReverseProxyService publishes LoadBalancer Services through the NetBird
+// reverse proxy, internally or externally. It is the admin's expose-or-not
+// decision.
 type ReverseProxyService struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

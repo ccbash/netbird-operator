@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: default
+  labels: { app: nginx }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: nginx }
+  template:
+    metadata:
+      labels: { app: nginx }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx
+          imagePullPolicy: Always
+---
+# A LoadBalancer Service. Whatever IPAM your cluster runs (Cilium LB-IPAM,
+# MetalLB, a cloud LB, …) allocates the ingress IP; the operator advertises it
+# into the network automatically — a NetworkResource + a DNSRecord
+# (nginx-default.kube.example.com, A/AAAA) per IP family. Opt a namespace or
+# Service out with the annotation netbird.io/advertise: "false".
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: default
+  labels: { app: nginx }
+spec:
+  type: LoadBalancer
+  selector: { app: nginx }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# Publish the Service through the NetBird reverse proxy. The proxy targets the
+# Service's dualstack DNS name (so IPv4/IPv6 is transparent). private: true
+# would make it NetBird-only instead of public.
+apiVersion: netbird.io/v1alpha1
+kind: ReverseProxyService
+metadata:
+  name: nginx
+  namespace: default
+spec:
+  backends:
+    - serviceRef: { name: nginx }
+      path: /
+  proxyCluster: gate.example.com   # your NetBird reverse-proxy cluster address
+  domain: nginx.example.com
+  crowdsecMode: observe            # off | observe | enforce

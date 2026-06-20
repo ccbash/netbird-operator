@@ -611,8 +611,9 @@ _Appears in:_
 
 
 
-ReverseProxyService exposes a Gateway-API route's backends through the NetBird
-reverse proxy. It is the admin's expose-or-not decision.
+ReverseProxyService publishes LoadBalancer Services through the NetBird
+reverse proxy, internally or externally. It is the admin's expose-or-not
+decision.
 
 
 
