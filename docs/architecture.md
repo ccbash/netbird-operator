@@ -119,7 +119,26 @@ DNSRecord FQDN** (resolves, via the zone, to the LB IP routed through the
 
 The operator watches **`Service type=LoadBalancer`** (which includes
 Gateway-provisioned LB Services; a Gateway's address is also in
-`Gateway.status.addresses`). For each in-scope LB Service:
+`Gateway.status.addresses`).
+
+**Scoping — default-on, namespace opt-out.** A Service is advertised when it has
+an allocated `status.loadBalancer.ingress` and the advertise decision resolves
+to true, most-specific wins:
+
+1. operator default — `advertiseLoadBalancers: true` (flip to `false` for a
+   default-off / namespace-opt-in posture);
+2. namespace annotation `netbird.io/advertise: "true"|"false"`;
+3. Service annotation `netbird.io/advertise: "true"|"false"`.
+
+Namespace-level is the primary lever because Gateway-provisioned LB Services are
+generated and awkward to annotate individually. The target `Network` is the
+cluster's single `Network` by default, or a namespace annotation
+`netbird.io/network: <name>` for multi-network setups. Advertising is *automatic*
+(no opt-in CRD); it makes the name resolvable and the IP routable, but grants no
+access — that stays gated by NetBird policies, and nothing is published through
+the proxy until a `ReverseProxyService` is authored.
+
+For each advertised LB Service:
 
 - **`DNSRecord`** `<svc>-<ns>.<zone>` with one **A** per IPv4 and one **AAAA**
   per IPv6 `status.loadBalancer.ingress` address — a single **dualstack name**,
@@ -156,9 +175,6 @@ helpers, `Group`/`SetupKey`, `ClusterProxy`, the Pod sidecar webhook.
 
 ## Open details
 
-- **Opt-in / scoping.** Which LoadBalancer Services get advertised, and into
-  which `Network`/zone — a Service annotation/label selecting a `Network`, or
-  implied by a `ReverseProxyService` reference. To finalize.
 - **Bare-L4 path.** A `TCPRoute` or a non-HTTP LoadBalancer Service is reachable
   by its `DNSRecord` + `NetworkResource` directly (no reverse proxy); confirm
   whether that needs any CRD beyond the reachability layer.
