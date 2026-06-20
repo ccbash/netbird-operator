@@ -15,6 +15,7 @@ Package v1alpha1 contains API Schema definitions for the  v1alpha1 API group.
 - [Group](#group)
 - [Network](#network)
 - [NetworkResource](#networkresource)
+- [NetworkRouter](#networkrouter)
 - [ReverseProxyService](#reverseproxyservice)
 - [SetupKey](#setupkey)
 - [SidecarProfile](#sidecarprofile)
@@ -130,6 +131,7 @@ _Appears in:_
 _Appears in:_
 - [DNSRecordSpec](#dnsrecordspec)
 - [NetworkResourceSpec](#networkresourcespec)
+- [NetworkRouterSpec](#networkrouterspec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -317,6 +319,7 @@ _Appears in:_
 - [ClusterProxySpec](#clusterproxyspec)
 - [DNSZoneSpec](#dnszonespec)
 - [NetworkResourceSpec](#networkresourcespec)
+- [NetworkRouterPeers](#networkrouterpeers)
 - [ReverseProxyServiceSpec](#reverseproxyservicespec)
 - [SetupKeySpec](#setupkeyspec)
 
@@ -467,6 +470,87 @@ _Appears in:_
 | `resourceID` _string_ | ResourceID is the id of the created NetBird resource. |  | Optional: \{\} <br /> |
 
 
+#### NetworkRouter
+
+
+
+NetworkRouter is the Schema for the networkrouters API: a NetBird router (a
+peer group bound to a network) plus its routing-peer source.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `netbird.io/v1alpha1` | | |
+| `kind` _string_ | `NetworkRouter` | | |
+| `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  | Optional: \{\} <br /> |
+| `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[NetworkRouterSpec](#networkrouterspec)_ |  |  | Required: \{\} <br /> |
+| `status` _[NetworkRouterStatus](#networkrouterstatus)_ |  | \{ observedGeneration:-1 \} |  |
+
+
+#### NetworkRouterPeers
+
+
+
+NetworkRouterPeers selects the routing peers. Exactly one field must be set.
+
+
+
+_Appears in:_
+- [NetworkRouterSpec](#networkrouterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `group` _[GroupReference](#groupreference)_ | Group reuses an existing NetBird group as the routing peers (e.g. the group<br />the host-level netbird on the cluster nodes auto-joins). The operator<br />creates only the router and deploys nothing. |  | Optional: \{\} <br /> |
+| `deploy` _[RouterDeploy](#routerdeploy)_ | Deploy runs a hostNetwork DaemonSet of netbird-client as the routing peers;<br />the operator manages its Group, SetupKey and DaemonSet. |  | Optional: \{\} <br /> |
+
+
+#### NetworkRouterSpec
+
+
+
+NetworkRouterSpec mirrors the NetBird router API
+(POST /api/networks/{network}/routers) and adds the routing-peer source: an
+existing NetBird group, or a netbird-client DaemonSet the operator deploys.
+
+
+
+_Appears in:_
+- [NetworkRouter](#networkrouter)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `networkRef` _[CrossNamespaceReference](#crossnamespacereference)_ | NetworkRef references the Network this router belongs to. The Network must<br />be Ready; its status.networkID identifies the NetBird network. |  |  |
+| `peers` _[NetworkRouterPeers](#networkrouterpeers)_ | Peers selects the routing peers — exactly one of group or deploy. |  |  |
+| `masquerade` _boolean_ | Masquerade makes the routing peers SNAT traffic to the routed resources. | true | Optional: \{\} <br /> |
+| `metric` _integer_ | Metric is the route metric; the lowest number wins. | 9999 | Maximum: 9999 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `enabled` _boolean_ | Enabled controls whether the router is active. | true | Optional: \{\} <br /> |
+
+
+#### NetworkRouterStatus
+
+
+
+NetworkRouterStatus defines the observed state of NetworkRouter.
+
+
+
+_Appears in:_
+- [NetworkRouter](#networkrouter)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the NetworkRouter. |  | Optional: \{\} <br /> |
+| `networkID` _string_ | NetworkID is the id of the network the router is created in. |  | Optional: \{\} <br /> |
+| `routerID` _string_ | RouterID is the id of the created NetBird router. |  | Optional: \{\} <br /> |
+| `groupID` _string_ | GroupID is the id of the peer group bound to the router. |  | Optional: \{\} <br /> |
+
+
 #### NetworkSpec
 
 
@@ -503,6 +587,26 @@ _Appears in:_
 | `networkID` _string_ | NetworkID is the id of the created NetBird network. |  | Optional: \{\} <br /> |
 
 
+#### ReverseProxyBackend
+
+
+
+ReverseProxyBackend names a LoadBalancer Service this service proxies to. The
+Service must be advertised (have a DNSRecord); the proxy targets its dualstack
+FQDN, so IPv4/IPv6 is transparent.
+
+
+
+_Appears in:_
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef names the LoadBalancer Service to proxy to, in the same<br />namespace as the ReverseProxyService. |  |  |
+| `port` _integer_ | Port the proxy dials on the backend. Defaults to the Service's first port. |  | Optional: \{\} <br /> |
+| `path` _string_ | Path is the URL path prefix this backend serves (HTTP). Defaults to "/". |  | Optional: \{\} <br /> |
+
+
 #### ReverseProxyService
 
 
@@ -530,10 +634,10 @@ reverse proxy. It is the admin's expose-or-not decision.
 
 
 ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
-is admin-authored — creating one is the explicit decision to expose a route
-through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
-service API (POST /api/reverse-proxies/services), but derives its targets
-from the referenced route's backends rather than listing them by hand.
+is admin-authored — creating one is the explicit decision to expose Services
+through the NetBird reverse proxy, internally or externally. It mirrors the
+NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
+targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
 
 
 
@@ -542,10 +646,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `routeRef` _[RouteReference](#routereference)_ | RouteRef identifies the HTTPRoute or TCPRoute whose backends this service<br />exposes. |  |  |
+| `backends` _[ReverseProxyBackend](#reverseproxybackend) array_ | Backends are the LoadBalancer Services this service proxies to, by path. |  | MaxItems: 64 <br />MinItems: 1 <br /> |
 | `proxyCluster` _string_ | ProxyCluster is the address of the NetBird reverse-proxy cluster that<br />serves this service, e.g. "gate.example.com". The operator resolves it to<br />a proxy-cluster ID and points the service's targets at it. |  | MinLength: 1 <br /> |
-| `domain` _string_ | Domain is the public hostname the service is published under. Defaults to<br />the referenced route's hostname when empty. |  | Optional: \{\} <br /> |
-| `upstream` _[UpstreamMode](#upstreammode)_ | Upstream selects how the proxy reaches the backend: "hostname" (default)<br />targets the Service FQDN so the proxy resolves it via NetBird DNS<br />(IPv4/IPv6 transparent); "ip" targets the ClusterIP directly. | hostname | Enum: [hostname ip] <br />Optional: \{\} <br /> |
+| `domain` _string_ | Domain is the hostname the service is published under. |  | MinLength: 1 <br /> |
 | `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. |  | Optional: \{\} <br /> |
 | `accessGroups` _[GroupReference](#groupreference) array_ | AccessGroups are the NetBird groups whose peers may reach a private<br />service over the tunnel. Required when Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
 | `crowdsecMode` _[CrowdsecMode](#crowdsecmode)_ | CrowdsecMode sets the CrowdSec IP-reputation handling for the service. |  | Enum: [off observe enforce] <br />Optional: \{\} <br /> |
@@ -572,23 +675,22 @@ _Appears in:_
 | `serviceID` _string_ | ServiceID is the id of the created NetBird reverse-proxy service. |  | Optional: \{\} <br /> |
 
 
-#### RouteReference
+#### RouterDeploy
 
 
 
-RouteReference identifies the Gateway-API route whose backends a
-ReverseProxyService exposes. The route must be in the same namespace.
+RouterDeploy configures the netbird-client DaemonSet for peers.deploy.
 
 
 
 _Appears in:_
-- [ReverseProxyServiceSpec](#reverseproxyservicespec)
+- [NetworkRouterPeers](#networkrouterpeers)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `group` _string_ | Group is the route's API group. | gateway.networking.k8s.io | Enum: [gateway.networking.k8s.io] <br />Optional: \{\} <br /> |
-| `kind` _string_ | Kind is the route kind. |  | Enum: [HTTPRoute TCPRoute] <br /> |
-| `name` _string_ | Name of the route. |  | MinLength: 1 <br /> |
+| `nodeSelector` _object (keys:string, values:string)_ | NodeSelector limits the DaemonSet to matching nodes (default: all nodes). |  | Optional: \{\} <br /> |
+| `image` _string_ | Image overrides the netbird-client image (default: the operator's<br />configured client image). |  | Optional: \{\} <br /> |
+| `logLevel` _string_ | LogLevel for the netbird client. |  | Enum: [error warn info debug trace] <br />Optional: \{\} <br /> |
 
 
 #### SetupKey
@@ -706,23 +808,5 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the SidecarProfile. |  | Optional: \{\} <br /> |
-
-
-#### UpstreamMode
-
-_Underlying type:_ _string_
-
-UpstreamMode selects how the reverse-proxy cluster reaches the backend Service.
-
-_Validation:_
-- Enum: [hostname ip]
-
-_Appears in:_
-- [ReverseProxyServiceSpec](#reverseproxyservicespec)
-
-| Field | Description |
-| --- | --- |
-| `hostname` | UpstreamModeHostname targets the Service FQDN, so the proxy resolves it via<br />NetBird DNS (A/AAAA) — IPv4/IPv6 transparent. The default.<br /> |
-| `ip` | UpstreamModeIP targets the Service ClusterIP directly (single address<br />family, DNS-independent).<br /> |
 
 

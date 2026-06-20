@@ -4,12 +4,19 @@ package controller
 
 import (
 	"net"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
+
+// childName is the deterministic name of a per-Service child object for one IP
+// family, e.g. "app-ipv4" — unique within the Service's namespace.
+func childName(svcName string, family corev1.IPFamily) string {
+	return svcName + "-" + strings.ToLower(string(family))
+}
 
 // dnsRecordTTL is the TTL applied to the A/AAAA records the operator publishes.
 const dnsRecordTTL = 5 * time.Minute

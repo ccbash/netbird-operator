@@ -9,19 +9,13 @@ import (
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gwv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
-	"github.com/netbirdio/kubernetes-operator/internal/gatewayutil"
 	"github.com/netbirdio/kubernetes-operator/internal/netbirdutil"
 )
 
@@ -31,7 +25,7 @@ import (
 
 // NewReverseProxyServiceReconciler builds the reconciler for the
 // ReverseProxyService CRD. It reuses the generic mirror reconciler — its apply
-// closure derives the service's targets from the referenced route's backends.
+// closure targets each backend LoadBalancer Service's DNSRecord FQDN.
 func NewReverseProxyServiceReconciler(c client.Client, nb *netbird.Client, rec record.EventRecorder) *MirrorReconciler[*nbv1alpha1.ReverseProxyService] {
 	return &MirrorReconciler[*nbv1alpha1.ReverseProxyService]{
 		Client:   c,
@@ -48,11 +42,6 @@ func NewReverseProxyServiceReconciler(c client.Client, nb *netbird.Client, rec r
 }
 
 func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.Client, rps *nbv1alpha1.ReverseProxyService) error {
-	backends, zoneDomain, hostname, err := resolveRouteForProxy(ctx, c, rps.Namespace, rps.Spec.RouteRef)
-	if err != nil {
-		return err
-	}
-
 	cluster, err := netbirdutil.GetProxyClusterByAddress(ctx, nb, rps.Spec.ProxyCluster)
 	if errors.Is(err, netbirdutil.ErrProxyClusterNotFound) {
 		return fmt.Errorf("%w: proxy cluster %s not found", errDependencyNotReady, rps.Spec.ProxyCluster)
@@ -61,43 +50,32 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 		return err
 	}
 
-	domain := rps.Spec.Domain
-	if domain == "" {
-		domain = hostname
-	}
-	if domain == "" {
-		return fmt.Errorf("spec.domain is required (route %s has no hostname)", rps.Spec.RouteRef.Name)
-	}
-
-	upstream := rps.Spec.Upstream
-	if upstream == "" {
-		upstream = nbv1alpha1.UpstreamModeHostname
-	}
-
-	mode := api.ServiceRequestModeHttp
-	protocol := api.ServiceTargetProtocolHttp
-	if rps.Spec.RouteRef.Kind == "TCPRoute" {
-		mode = api.ServiceRequestModeTcp
-		protocol = api.ServiceTargetProtocolTcp
-	}
-
-	targets := make([]api.ServiceTarget, 0, len(backends))
-	for _, b := range backends {
-		host := serviceFQDN(b.svc.Name, b.svc.Namespace, zoneDomain)
-		if upstream == nbv1alpha1.UpstreamModeIP {
-			host = b.svc.Spec.ClusterIP
+	targets := make([]api.ServiceTarget, 0, len(rps.Spec.Backends))
+	for _, b := range rps.Spec.Backends {
+		fqdn, err := backendFQDN(ctx, c, rps.Namespace, b.ServiceRef.Name)
+		if err != nil {
+			return err
 		}
-		hostVal := host
+		port, err := backendPort(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
+		if err != nil {
+			return err
+		}
+		host := fqdn
 		direct := true
-		targets = append(targets, api.ServiceTarget{
+		target := api.ServiceTarget{
 			Enabled:    true,
-			Host:       &hostVal,
-			Port:       b.port,
-			Protocol:   protocol,
+			Host:       &host,
+			Port:       port,
+			Protocol:   api.ServiceTargetProtocolHttp,
 			TargetType: api.ServiceTargetTargetTypeCluster,
 			TargetId:   cluster.Id,
 			Options:    &api.ServiceTargetOptions{DirectUpstream: &direct},
-		})
+		}
+		if b.Path != "" {
+			path := b.Path
+			target.Path = &path
+		}
+		targets = append(targets, target)
 	}
 	sortServiceTargets(targets)
 
@@ -106,11 +84,11 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 		return err
 	}
 
-	modeVal := mode
+	mode := api.ServiceRequestModeHttp
 	req := api.ServiceRequest{
-		Domain:           domain,
+		Domain:           rps.Spec.Domain,
 		Enabled:          true,
-		Mode:             &modeVal,
+		Mode:             &mode,
 		Name:             rps.Name,
 		Targets:          &targets,
 		Private:          rps.Spec.Private,
@@ -149,114 +127,37 @@ func deleteReverseProxyService(ctx context.Context, nb *netbird.Client, rps *nbv
 	return nb.ReverseProxyServices.Delete(ctx, rps.Status.ServiceID)
 }
 
-// routeBackend pairs a resolved backend Service with its target port.
-type routeBackend struct {
-	svc  corev1.Service
-	port int
+// backendFQDN returns the dualstack DNS name advertised for a LoadBalancer
+// Service (the DNSRecord the LoadBalancer controller published), or
+// errDependencyNotReady while the Service is not yet advertised.
+func backendFQDN(ctx context.Context, c client.Client, namespace, svcName string) (string, error) {
+	var records nbv1alpha1.DNSRecordList
+	if err := c.List(ctx, &records, client.InNamespace(namespace), client.MatchingLabels{lbServiceLabel: svcName}); err != nil {
+		return "", err
+	}
+	if len(records.Items) == 0 {
+		return "", fmt.Errorf("%w: Service %s/%s not advertised (no DNSRecord)", errDependencyNotReady, namespace, svcName)
+	}
+	return records.Items[0].Spec.Name, nil
 }
 
-// resolveRouteForProxy resolves the route named by ref, its parent netbird
-// Gateway's zone domain and hostname, and its backend Services. Missing or
-// not-programmed dependencies are returned as errDependencyNotReady.
-func resolveRouteForProxy(ctx context.Context, c client.Client, namespace string, ref nbv1alpha1.RouteReference) ([]routeBackend, string, string, error) {
-	var parents []gwv1.ParentReference
-	type backendRef struct {
-		name string
-		port int
+// backendPort returns want, or the Service's first port when want is 0.
+func backendPort(ctx context.Context, c client.Client, namespace, svcName string, want int) (int, error) {
+	if want != 0 {
+		return want, nil
 	}
-	var backendRefs []backendRef
-	var hostname string
-
-	switch ref.Kind {
-	case "HTTPRoute":
-		hr := &gwv1.HTTPRoute{}
-		err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, hr)
-		if kerrors.IsNotFound(err) {
-			return nil, "", "", fmt.Errorf("%w: HTTPRoute %s/%s not found", errDependencyNotReady, namespace, ref.Name)
-		}
-		if err != nil {
-			return nil, "", "", err
-		}
-		parents = hr.Spec.ParentRefs
-		if len(hr.Spec.Hostnames) > 0 {
-			hostname = string(hr.Spec.Hostnames[0])
-		}
-		for _, rule := range hr.Spec.Rules {
-			for _, b := range rule.BackendRefs {
-				backendRefs = append(backendRefs, backendRef{string(b.Name), portNumber(b.Port)})
-			}
-		}
-	case "TCPRoute":
-		tr := &gwv1alpha2.TCPRoute{}
-		err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, tr)
-		if kerrors.IsNotFound(err) {
-			return nil, "", "", fmt.Errorf("%w: TCPRoute %s/%s not found", errDependencyNotReady, namespace, ref.Name)
-		}
-		if err != nil {
-			return nil, "", "", err
-		}
-		parents = tr.Spec.ParentRefs
-		for _, rule := range tr.Spec.Rules {
-			for _, b := range rule.BackendRefs {
-				backendRefs = append(backendRefs, backendRef{string(b.Name), portNumber(b.Port)})
-			}
-		}
-	default:
-		return nil, "", "", fmt.Errorf("unsupported routeRef kind %q", ref.Kind)
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc); err != nil {
+		return 0, err
 	}
-
-	var gw *gwv1.Gateway
-	for _, p := range parents {
-		g, err := gatewayutil.GetParentGateway(ctx, c, p, namespace, GatewayControllerName)
-		if err != nil {
-			return nil, "", "", err
-		}
-		if g != nil {
-			gw = g
-			break
-		}
+	if len(svc.Spec.Ports) == 0 {
+		return 0, fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
 	}
-	if gw == nil {
-		return nil, "", "", fmt.Errorf("%w: route %s has no netbird Gateway parent", errDependencyNotReady, ref.Name)
-	}
-	if !meta.IsStatusConditionTrue(gw.Status.Conditions, string(gwv1.GatewayConditionProgrammed)) {
-		return nil, "", "", fmt.Errorf("%w: Gateway %s is not programmed", errDependencyNotReady, gw.Name)
-	}
-
-	zone := &nbv1alpha1.DNSZone{}
-	err := c.Get(ctx, types.NamespacedName{Namespace: gw.Namespace, Name: gatewayDNSZoneName(gw)}, zone)
-	if kerrors.IsNotFound(err) {
-		return nil, "", "", fmt.Errorf("%w: DNSZone for Gateway %s not found", errDependencyNotReady, gw.Name)
-	}
-	if err != nil {
-		return nil, "", "", err
-	}
-
-	var backends []routeBackend
-	for _, br := range backendRefs {
-		svc := corev1.Service{}
-		err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: br.name}, &svc)
-		if kerrors.IsNotFound(err) {
-			continue
-		}
-		if err != nil {
-			return nil, "", "", err
-		}
-		backends = append(backends, routeBackend{svc: svc, port: br.port})
-	}
-	return backends, zone.Spec.Domain, hostname, nil
-}
-
-func portNumber(p *gwv1.PortNumber) int {
-	if p == nil {
-		return 0
-	}
-	return int(*p)
+	return int(svc.Spec.Ports[0].Port), nil
 }
 
 // sortServiceTargets orders targets deterministically so an unchanged reconcile
-// renders an identical ServiceRequest (cluster targets share a TargetId and
-// differ by Host/Port).
+// renders an identical ServiceRequest.
 func sortServiceTargets(targets []api.ServiceTarget) {
 	sort.Slice(targets, func(i, j int) bool {
 		hi, hj := "", ""

@@ -58,18 +58,28 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.NetworkResourceSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkResourceStatus"):
 		return &apiv1alpha1.NetworkResourceStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NetworkRouter"):
+		return &apiv1alpha1.NetworkRouterApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NetworkRouterPeers"):
+		return &apiv1alpha1.NetworkRouterPeersApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NetworkRouterSpec"):
+		return &apiv1alpha1.NetworkRouterSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("NetworkRouterStatus"):
+		return &apiv1alpha1.NetworkRouterStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkSpec"):
 		return &apiv1alpha1.NetworkSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NetworkStatus"):
 		return &apiv1alpha1.NetworkStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyBackend"):
+		return &apiv1alpha1.ReverseProxyBackendApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyService"):
 		return &apiv1alpha1.ReverseProxyServiceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyServiceSpec"):
 		return &apiv1alpha1.ReverseProxyServiceSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyServiceStatus"):
 		return &apiv1alpha1.ReverseProxyServiceStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("RouteReference"):
-		return &apiv1alpha1.RouteReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("RouterDeploy"):
+		return &apiv1alpha1.RouterDeployApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SetupKey"):
 		return &apiv1alpha1.SetupKeyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SetupKeySpec"):

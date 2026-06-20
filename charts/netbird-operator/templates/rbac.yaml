@@ -11,6 +11,7 @@ rules:
   - setupkeys
   - groups
   - networks
+  - networkrouters
   - networkresources
   - dnszones
   - dnsrecords
@@ -31,6 +32,7 @@ rules:
   - setupkeys/status
   - groups/status
   - networks/status
+  - networkrouters/status
   - networkresources/status
   - dnszones/status
   - dnsrecords/status
@@ -47,6 +49,7 @@ rules:
   - setupkeys/finalizers
   - groups/finalizers
   - networks/finalizers
+  - networkrouters/finalizers
   - networkresources/finalizers
   - dnszones/finalizers
   - dnsrecords/finalizers
@@ -74,6 +77,7 @@ rules:
   - apps
   resources:
   - deployments
+  - daemonsets
   verbs:
   - get
   - patch
@@ -126,34 +130,6 @@ rules:
   - create
   - delete
 {{- end }}
-{{- end }}
-{{- if .Values.gatewayAPI.enabled }}
-- apiGroups: ["gateway.networking.k8s.io"]
-  resources:
-    - gatewayclasses
-    - gateways
-    - httproutes
-    - tcproutes
-  verbs:
-    - get
-    - list
-    - watch
-    - update
-    - patch
-- apiGroups: ["gateway.networking.k8s.io"]
-  resources:
-    - gatewayclasses/status
-    - gateways/status
-    - httproutes/status
-    - tcproutes/status
-  verbs:
-    - update
-    - patch
-- apiGroups: ["gateway.networking.k8s.io"]
-  resources:
-    - gateways/finalizers
-  verbs:
-    - update
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

@@ -3,6 +3,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -15,19 +16,6 @@ const (
 	CrowdsecModeOff     CrowdsecMode = "off"
 	CrowdsecModeObserve CrowdsecMode = "observe"
 	CrowdsecModeEnforce CrowdsecMode = "enforce"
-)
-
-// UpstreamMode selects how the reverse-proxy cluster reaches the backend Service.
-// +kubebuilder:validation:Enum=hostname;ip
-type UpstreamMode string
-
-const (
-	// UpstreamModeHostname targets the Service FQDN, so the proxy resolves it via
-	// NetBird DNS (A/AAAA) — IPv4/IPv6 transparent. The default.
-	UpstreamModeHostname UpstreamMode = "hostname"
-	// UpstreamModeIP targets the Service ClusterIP directly (single address
-	// family, DNS-independent).
-	UpstreamModeIP UpstreamMode = "ip"
 )
 
 // AccessRestrictions are connection-level restrictions based on IP address or
@@ -64,34 +52,34 @@ type AccessRestrictions struct {
 	BlockedCountries []string `json:"blockedCountries,omitempty"`
 }
 
-// RouteReference identifies the Gateway-API route whose backends a
-// ReverseProxyService exposes. The route must be in the same namespace.
-type RouteReference struct {
-	// Group is the route's API group.
+// ReverseProxyBackend names a LoadBalancer Service this service proxies to. The
+// Service must be advertised (have a DNSRecord); the proxy targets its dualstack
+// FQDN, so IPv4/IPv6 is transparent.
+type ReverseProxyBackend struct {
+	// ServiceRef names the LoadBalancer Service to proxy to, in the same
+	// namespace as the ReverseProxyService.
+	ServiceRef corev1.LocalObjectReference `json:"serviceRef"`
+
+	// Port the proxy dials on the backend. Defaults to the Service's first port.
 	// +optional
-	// +kubebuilder:default=gateway.networking.k8s.io
-	// +kubebuilder:validation:Enum=gateway.networking.k8s.io
-	Group string `json:"group,omitempty"`
+	Port int `json:"port,omitempty"`
 
-	// Kind is the route kind.
-	// +kubebuilder:validation:Enum=HTTPRoute;TCPRoute
-	Kind string `json:"kind"`
-
-	// Name of the route.
-	// +kubebuilder:validation:MinLength=1
-	Name string `json:"name"`
+	// Path is the URL path prefix this backend serves (HTTP). Defaults to "/".
+	// +optional
+	Path string `json:"path,omitempty"`
 }
 
 // ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
-// is admin-authored — creating one is the explicit decision to expose a route
-// through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
-// service API (POST /api/reverse-proxies/services), but derives its targets
-// from the referenced route's backends rather than listing them by hand.
+// is admin-authored — creating one is the explicit decision to expose Services
+// through the NetBird reverse proxy, internally or externally. It mirrors the
+// NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
+// targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
 type ReverseProxyServiceSpec struct {
-	// RouteRef identifies the HTTPRoute or TCPRoute whose backends this service
-	// exposes.
-	RouteRef RouteReference `json:"routeRef"`
+	// Backends are the LoadBalancer Services this service proxies to, by path.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
+	Backends []ReverseProxyBackend `json:"backends"`
 
 	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
 	// serves this service, e.g. "gate.example.com". The operator resolves it to
@@ -99,17 +87,9 @@ type ReverseProxyServiceSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	ProxyCluster string `json:"proxyCluster"`
 
-	// Domain is the public hostname the service is published under. Defaults to
-	// the referenced route's hostname when empty.
-	// +optional
-	Domain string `json:"domain,omitempty"`
-
-	// Upstream selects how the proxy reaches the backend: "hostname" (default)
-	// targets the Service FQDN so the proxy resolves it via NetBird DNS
-	// (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
-	// +kubebuilder:default=hostname
-	// +optional
-	Upstream UpstreamMode `json:"upstream,omitempty"`
+	// Domain is the hostname the service is published under.
+	// +kubebuilder:validation:MinLength=1
+	Domain string `json:"domain"`
 
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is

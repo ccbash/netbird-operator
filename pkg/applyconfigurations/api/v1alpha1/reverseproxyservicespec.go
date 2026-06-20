@@ -12,25 +12,19 @@ import (
 // with apply.
 //
 // ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
-// is admin-authored — creating one is the explicit decision to expose a route
-// through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
-// service API (POST /api/reverse-proxies/services), but derives its targets
-// from the referenced route's backends rather than listing them by hand.
+// is admin-authored — creating one is the explicit decision to expose Services
+// through the NetBird reverse proxy, internally or externally. It mirrors the
+// NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
+// targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
 type ReverseProxyServiceSpecApplyConfiguration struct {
-	// RouteRef identifies the HTTPRoute or TCPRoute whose backends this service
-	// exposes.
-	RouteRef *RouteReferenceApplyConfiguration `json:"routeRef,omitempty"`
+	// Backends are the LoadBalancer Services this service proxies to, by path.
+	Backends []ReverseProxyBackendApplyConfiguration `json:"backends,omitempty"`
 	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
 	// serves this service, e.g. "gate.example.com". The operator resolves it to
 	// a proxy-cluster ID and points the service's targets at it.
 	ProxyCluster *string `json:"proxyCluster,omitempty"`
-	// Domain is the public hostname the service is published under. Defaults to
-	// the referenced route's hostname when empty.
+	// Domain is the hostname the service is published under.
 	Domain *string `json:"domain,omitempty"`
-	// Upstream selects how the proxy reaches the backend: "hostname" (default)
-	// targets the Service FQDN so the proxy resolves it via NetBird DNS
-	// (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
-	Upstream *apiv1alpha1.UpstreamMode `json:"upstream,omitempty"`
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
 	// auto-generated from AccessGroups.
@@ -56,11 +50,16 @@ func ReverseProxyServiceSpec() *ReverseProxyServiceSpecApplyConfiguration {
 	return &ReverseProxyServiceSpecApplyConfiguration{}
 }
 
-// WithRouteRef sets the RouteRef field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the RouteRef field is set to the value of the last call.
-func (b *ReverseProxyServiceSpecApplyConfiguration) WithRouteRef(value *RouteReferenceApplyConfiguration) *ReverseProxyServiceSpecApplyConfiguration {
-	b.RouteRef = value
+// WithBackends adds the given value to the Backends field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Backends field.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithBackends(values ...*ReverseProxyBackendApplyConfiguration) *ReverseProxyServiceSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithBackends")
+		}
+		b.Backends = append(b.Backends, *values[i])
+	}
 	return b
 }
 
@@ -77,14 +76,6 @@ func (b *ReverseProxyServiceSpecApplyConfiguration) WithProxyCluster(value strin
 // If called multiple times, the Domain field is set to the value of the last call.
 func (b *ReverseProxyServiceSpecApplyConfiguration) WithDomain(value string) *ReverseProxyServiceSpecApplyConfiguration {
 	b.Domain = &value
-	return b
-}
-
-// WithUpstream sets the Upstream field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Upstream field is set to the value of the last call.
-func (b *ReverseProxyServiceSpecApplyConfiguration) WithUpstream(value apiv1alpha1.UpstreamMode) *ReverseProxyServiceSpecApplyConfiguration {
-	b.Upstream = &value
 	return b
 }
 

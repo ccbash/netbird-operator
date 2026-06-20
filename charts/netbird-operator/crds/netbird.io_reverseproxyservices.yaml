@@ -54,10 +54,10 @@ spec:
           spec:
             description: |-
               ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
-              is admin-authored — creating one is the explicit decision to expose a route
-              through the NetBird reverse proxy. It mirrors the NetBird reverse-proxy
-              service API (POST /api/reverse-proxies/services), but derives its targets
-              from the referenced route's backends rather than listing them by hand.
+              is admin-authored — creating one is the explicit decision to expose Services
+              through the NetBird reverse proxy, internally or externally. It mirrors the
+              NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
+              targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
             properties:
               accessGroups:
                 description: |-
@@ -143,6 +143,45 @@ spec:
                         codes
                       rule: self.all(c, c.matches('^[A-Za-z]{2}$'))
                 type: object
+              backends:
+                description: Backends are the LoadBalancer Services this service proxies
+                  to, by path.
+                items:
+                  description: |-
+                    ReverseProxyBackend names a LoadBalancer Service this service proxies to. The
+                    Service must be advertised (have a DNSRecord); the proxy targets its dualstack
+                    FQDN, so IPv4/IPv6 is transparent.
+                  properties:
+                    path:
+                      description: Path is the URL path prefix this backend serves
+                        (HTTP). Defaults to "/".
+                      type: string
+                    port:
+                      description: Port the proxy dials on the backend. Defaults to
+                        the Service's first port.
+                      type: integer
+                    serviceRef:
+                      description: |-
+                        ServiceRef names the LoadBalancer Service to proxy to, in the same
+                        namespace as the ReverseProxyService.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                  required:
+                  - serviceRef
+                  type: object
+                maxItems: 64
+                minItems: 1
+                type: array
               crowdsecMode:
                 description: CrowdsecMode sets the CrowdSec IP-reputation handling
                   for the service.
@@ -152,9 +191,8 @@ spec:
                 - enforce
                 type: string
               domain:
-                description: |-
-                  Domain is the public hostname the service is published under. Defaults to
-                  the referenced route's hostname when empty.
+                description: Domain is the hostname the service is published under.
+                minLength: 1
                 type: string
               passHostHeader:
                 description: |-
@@ -179,44 +217,10 @@ spec:
                   RewriteRedirects, when true, rewrites Location headers in backend
                   responses to replace the backend address with the public domain.
                 type: boolean
-              routeRef:
-                description: |-
-                  RouteRef identifies the HTTPRoute or TCPRoute whose backends this service
-                  exposes.
-                properties:
-                  group:
-                    default: gateway.networking.k8s.io
-                    description: Group is the route's API group.
-                    enum:
-                    - gateway.networking.k8s.io
-                    type: string
-                  kind:
-                    description: Kind is the route kind.
-                    enum:
-                    - HTTPRoute
-                    - TCPRoute
-                    type: string
-                  name:
-                    description: Name of the route.
-                    minLength: 1
-                    type: string
-                required:
-                - kind
-                - name
-                type: object
-              upstream:
-                default: hostname
-                description: |-
-                  Upstream selects how the proxy reaches the backend: "hostname" (default)
-                  targets the Service FQDN so the proxy resolves it via NetBird DNS
-                  (IPv4/IPv6 transparent); "ip" targets the ClusterIP directly.
-                enum:
-                - hostname
-                - ip
-                type: string
             required:
+            - backends
+            - domain
             - proxyCluster
-            - routeRef
             type: object
             x-kubernetes-validations:
             - message: accessGroups is required when private is true
