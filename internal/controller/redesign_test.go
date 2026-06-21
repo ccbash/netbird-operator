@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -120,6 +121,59 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			_, err = reconcileOnce(&NetworkRouterReconciler{Client: k8sClient, Netbird: nbClient}, "router")
 			Expect(err).NotTo(HaveOccurred())
 
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nr), nr)).To(Succeed())
+			Expect(nr.Status.RouterID).NotTo(BeEmpty())
+			Expect(meta.IsStatusConditionTrue(nr.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+
+			routers, err := nbClient.Networks.Routers(network.Status.NetworkID).List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(routers).To(HaveLen(1))
+		})
+
+		It("deploy mode creates a hostNetwork DaemonSet and joins the network once ready", func() {
+			network := readyNetwork()
+
+			nr := &nbv1alpha1.NetworkRouter{
+				ObjectMeta: metav1.ObjectMeta{Name: "nr", Namespace: ns},
+				Spec: nbv1alpha1.NetworkRouterSpec{
+					NetworkRef: nbv1alpha1.CrossNamespaceReference{Name: ns, Namespace: ns},
+					Peers:      nbv1alpha1.NetworkRouterPeers{Deploy: &nbv1alpha1.RouterDeploy{}},
+					Masquerade: true,
+					Metric:     9999,
+					Enabled:    true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, nr)).To(Succeed())
+			nrRec := &NetworkRouterReconciler{Client: k8sClient, Netbird: nbClient, ClientImage: "netbird:latest", ManagementURL: "https://netbird.io"}
+
+			// Pass 1: creates the router Group; waits on it.
+			_, err := reconcileOnce(nrRec, "nr")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = reconcileOnce(&GroupReconciler{Client: k8sClient, Netbird: nbClient}, "nr-router")
+			Expect(err).NotTo(HaveOccurred())
+			// Pass 2: creates the SetupKey; waits on it.
+			_, err = reconcileOnce(nrRec, "nr")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = reconcileOnce(&SetupKeyReconciler{Client: k8sClient, Netbird: nbClient}, "nr-router")
+			Expect(err).NotTo(HaveOccurred())
+			// Pass 3: creates the DaemonSet; waits on its readiness.
+			_, err = reconcileOnce(nrRec, "nr")
+			Expect(err).NotTo(HaveOccurred())
+
+			ds := &appsv1.DaemonSet{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "nr-router", Namespace: ns}, ds)).To(Succeed())
+			Expect(ds.Spec.Template.Spec.HostNetwork).To(BeTrue())
+			Expect(ds.Spec.Template.Spec.Containers).To(HaveLen(1))
+			Expect(ds.Spec.Template.Spec.Containers[0].Image).To(Equal("netbird:latest"))
+
+			// Fake the router pods becoming ready (no kubelet in envtest).
+			ds.Status.DesiredNumberScheduled = 1
+			ds.Status.NumberReady = 1
+			Expect(k8sClient.Status().Update(ctx, ds)).To(Succeed())
+
+			// Final pass: joins the peers to the network and goes Ready.
+			_, err = reconcileOnce(nrRec, "nr")
+			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nr), nr)).To(Succeed())
 			Expect(nr.Status.RouterID).NotTo(BeEmpty())
 			Expect(meta.IsStatusConditionTrue(nr.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
