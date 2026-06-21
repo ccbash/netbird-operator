@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,6 +23,9 @@ const (
 	advertiseAnnotation = "netbird.io/advertise"
 	networkAnnotation   = "netbird.io/network"
 	zoneAnnotation      = "netbird.io/dns-zone"
+	// groupsAnnotation lists the NetBird groups (comma-separated names) the
+	// advertised resource joins, so access policies can target it.
+	groupsAnnotation = "netbird.io/groups"
 	// lbServiceLabel marks the NetworkResource/DNSRecord children advertised for
 	// a LoadBalancer Service (value = the Service name), for pruning and lookup.
 	lbServiceLabel = "netbird.io/loadbalancer"
@@ -36,7 +40,10 @@ type LoadBalancerReconciler struct {
 	client.Client
 
 	DefaultAdvertise bool
-	Recorder         record.EventRecorder
+	// DefaultGroups are the NetBird groups advertised resources join when a
+	// Service/namespace sets no netbird.io/groups annotation.
+	DefaultGroups []string
+	Recorder      record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
@@ -79,6 +86,7 @@ func (r *LoadBalancerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	groupRefs := groupReferences(r.resourceGroups(svc, &nsObj))
 	logf.FromContext(ctx).V(1).Info("advertising LoadBalancer service", "network", network.Name, "zone", zone.Name)
 
 	desired := map[string]bool{}
@@ -91,15 +99,19 @@ func (r *LoadBalancerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		desired[name] = true
 		labels := map[string]string{lbServiceLabel: svc.Name}
 
+		resourceSpec := nbv1alpha1ac.NetworkResourceSpec().
+			WithNetworkRef(nbv1alpha1ac.CrossNamespaceReference().
+				WithName(network.Name).WithNamespace(network.Namespace)).
+			WithName(fmt.Sprintf("%s-%s-%s", svc.Name, svc.Namespace, fa.family)).
+			WithAddress(fa.address).
+			WithEnabled(true)
+		if len(groupRefs) > 0 {
+			resourceSpec = resourceSpec.WithGroups(groupRefs...)
+		}
 		resourceAC := nbv1alpha1ac.NetworkResource(name, svc.Namespace).
 			WithLabels(labels).
 			WithOwnerReferences(ownerRef).
-			WithSpec(nbv1alpha1ac.NetworkResourceSpec().
-				WithNetworkRef(nbv1alpha1ac.CrossNamespaceReference().
-					WithName(network.Name).WithNamespace(network.Namespace)).
-				WithName(fmt.Sprintf("%s-%s-%s", svc.Name, svc.Namespace, fa.family)).
-				WithAddress(fa.address).
-				WithEnabled(true))
+			WithSpec(resourceSpec)
 		if err := r.Apply(ctx, resourceAC, client.ForceOwnership); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -226,6 +238,32 @@ func annotation(svc *corev1.Service, ns *corev1.Namespace, key string) string {
 		return v
 	}
 	return ns.Annotations[key]
+}
+
+// resourceGroups resolves the NetBird group names an advertised resource joins:
+// the netbird.io/groups annotation (Service > namespace), else the operator
+// default. Resources need a group for access policies to target them.
+func (r *LoadBalancerReconciler) resourceGroups(svc *corev1.Service, ns *corev1.Namespace) []string {
+	v := annotation(svc, ns, groupsAnnotation)
+	if v == "" {
+		return r.DefaultGroups
+	}
+	var out []string
+	for _, g := range strings.Split(v, ",") {
+		if g = strings.TrimSpace(g); g != "" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// groupReferences builds GroupReference-by-name apply configs from group names.
+func groupReferences(names []string) []*nbv1alpha1ac.GroupReferenceApplyConfiguration {
+	refs := make([]*nbv1alpha1ac.GroupReferenceApplyConfiguration, 0, len(names))
+	for _, n := range names {
+		refs = append(refs, nbv1alpha1ac.GroupReference().WithName(n))
+	}
+	return refs
 }
 
 // lbIngressAddresses returns the Service's LoadBalancer ingress IPs paired with

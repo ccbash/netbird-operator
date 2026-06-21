@@ -136,7 +136,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			readyZone("kube.example.com")
 			svc := lbService("app", "192.0.2.10", "2001:db8::10")
 
-			r := &LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}
+			r := &LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true, DefaultGroups: []string{"All"}}
 			_, err := reconcileOnce(r, "app")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -144,6 +144,8 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "app-ipv4", Namespace: ns}, v4)).To(Succeed())
 			Expect(v4.Spec.Address).To(Equal("192.0.2.10"))
 			Expect(v4.Spec.NetworkRef.Name).To(Equal(ns))
+			Expect(v4.Spec.Groups).To(HaveLen(1))
+			Expect(v4.Spec.Groups[0].Name).To(HaveValue(Equal("All")))
 
 			recV4 := &nbv1alpha1.DNSRecord{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "app-ipv4", Namespace: ns}, recV4)).To(Succeed())
