@@ -131,6 +131,8 @@ func (r *LoadBalancerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
+	recordNormalEvent(r.Recorder, svc, reasonAdvertised,
+		"advertised over NetBird as %s (network %s)", serviceFQDN(svc.Name, svc.Namespace, zone.Spec.Domain), network.Name)
 	return ctrl.Result{RequeueAfter: resyncInterval}, r.prune(ctx, svc, desired)
 }
 

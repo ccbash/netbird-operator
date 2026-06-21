@@ -139,3 +139,13 @@ Command-line flags (see `--help`); the most useful:
 
 With the Helm chart these are set through values (`operator.logging.*`,
 `managementURL`, …).
+
+## Observability
+
+- An advertised `Service` gets a Kubernetes **`Advertised` event** (`kubectl
+  describe svc`) carrying its NetBird FQDN; problems surface as `Warning` events.
+- The mirror CRDs carry a **`Ready` condition** — e.g. `kubectl get
+  reverseproxyservice,networkresource,dnsrecord -A`.
+- Set `--metrics-bind-address` (`:8080`/`:8443`) to expose the built-in
+  controller-runtime **metrics** — per-controller reconcile rate, error count
+  and latency.
