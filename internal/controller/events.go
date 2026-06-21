@@ -12,7 +12,6 @@ import (
 // CamelCase per API convention and surface in `kubectl describe`.
 const (
 	reasonDependencyNotReady = "DependencyNotReady"
-	reasonBackendNotFound    = "BackendNotFound"
 	reasonInUse              = "InUse"
 )
 

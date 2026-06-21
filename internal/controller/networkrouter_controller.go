@@ -185,13 +185,13 @@ func (r *NetworkRouterReconciler) upsertRouter(ctx context.Context, networkID, r
 		Metric:     spec.Metric,
 		PeerGroups: &peerGroups,
 	}
-	// Verify the recorded router still exists (clean 404 on GET => recreate).
-	if routerID != "" {
-		if _, err := routers.Get(ctx, routerID); netbird.IsNotFound(err) {
-			routerID = ""
-		} else if err != nil {
-			return "", err
-		}
+	// Recreate if the recorded router was deleted out of band.
+	routerID, err := verifyNetbirdID(routerID, func(id string) error {
+		_, e := routers.Get(ctx, id)
+		return e
+	})
+	if err != nil {
+		return "", err
 	}
 	if routerID != "" {
 		resp, err := routers.Update(ctx, routerID, req)

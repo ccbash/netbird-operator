@@ -45,13 +45,13 @@ func applyDNSRecord(ctx context.Context, nb *netbird.Client, c client.Client, re
 	}
 	rec.Status.ZoneID = zoneID
 
-	// Verify the recorded record still exists (clean 404 on GET => recreate).
-	if rec.Status.RecordID != "" {
-		if _, err := nb.DNSZones.GetRecord(ctx, zoneID, rec.Status.RecordID); netbird.IsNotFound(err) {
-			rec.Status.RecordID = ""
-		} else if err != nil {
-			return err
-		}
+	// Recreate if the recorded record was deleted out of band.
+	rec.Status.RecordID, err = verifyNetbirdID(rec.Status.RecordID, func(id string) error {
+		_, e := nb.DNSZones.GetRecord(ctx, zoneID, id)
+		return e
+	})
+	if err != nil {
+		return err
 	}
 
 	req := api.DNSRecordRequest{

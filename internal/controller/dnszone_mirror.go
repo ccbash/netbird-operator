@@ -58,17 +58,14 @@ func applyDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *n
 		Enabled:            &enabled,
 	}
 
-	// Verify the recorded zone still exists; a clean 404 on GET means it was
-	// deleted out of band, so drop the stale id and re-adopt/recreate below.
-	if z.Status.ZoneID != "" {
-		if _, err := nb.DNSZones.GetZone(ctx, z.Status.ZoneID); netbird.IsNotFound(err) {
-			z.Status.ZoneID = ""
-		} else if err != nil {
-			return err
-		}
+	// Re-adopt/recreate if the recorded zone was deleted out of band.
+	zoneID, err := verifyNetbirdID(z.Status.ZoneID, func(id string) error {
+		_, e := nb.DNSZones.GetZone(ctx, id)
+		return e
+	})
+	if err != nil {
+		return err
 	}
-
-	zoneID := z.Status.ZoneID
 	if zoneID == "" {
 		// Adopt an existing zone with the same name rather than failing to create
 		// a duplicate — a zone provisioned out of band is taken over.

@@ -39,16 +39,15 @@ func applyNetwork(ctx context.Context, nb *netbird.Client, _ client.Client, net 
 	if net.Spec.Description != "" {
 		req.Description = &net.Spec.Description
 	}
-	// Verify the recorded network still exists. A plain GET returns a clean 404
-	// when it was deleted out of band (manual cleanup), which Update does not, so
-	// clear the stale id and recreate rather than erroring forever.
-	if net.Status.NetworkID != "" {
-		if _, err := nb.Networks.Get(ctx, net.Status.NetworkID); netbird.IsNotFound(err) {
-			net.Status.NetworkID = ""
-		} else if err != nil {
-			return err
-		}
+	// Recreate if the recorded network was deleted out of band.
+	networkID, err := verifyNetbirdID(net.Status.NetworkID, func(id string) error {
+		_, e := nb.Networks.Get(ctx, id)
+		return e
+	})
+	if err != nil {
+		return err
 	}
+	net.Status.NetworkID = networkID
 	if net.Status.NetworkID != "" {
 		resp, err := nb.Networks.Update(ctx, net.Status.NetworkID, req)
 		if err != nil {

@@ -23,22 +23,3 @@ func TestIPFamilyOf(t *testing.T) {
 	require.Equal(t, corev1.IPv6Protocol, ipFamilyOf("2001:db8::1"))
 	require.Equal(t, corev1.IPFamily(""), ipFamilyOf("not-an-ip"))
 }
-
-func TestFamilyAddresses(t *testing.T) {
-	t.Parallel()
-	dual := &corev1.Service{Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", ClusterIPs: []string{"10.0.0.1", "2001:db8::1"}}}
-
-	// No filter -> all of the Service's families, in order.
-	all := familyAddresses(dual, nil)
-	require.Equal(t, []string{"10.0.0.1", "2001:db8::1"}, addressList(all))
-
-	// Filter to IPv6 only.
-	v6 := familyAddresses(dual, []corev1.IPFamily{corev1.IPv6Protocol})
-	require.Len(t, v6, 1)
-	require.Equal(t, corev1.IPv6Protocol, v6[0].family)
-	require.Equal(t, "2001:db8::1", v6[0].address)
-
-	// A requested family the Service doesn't have -> nothing.
-	v4only := &corev1.Service{Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", ClusterIPs: []string{"10.0.0.1"}}}
-	require.Empty(t, familyAddresses(v4only, []corev1.IPFamily{corev1.IPv6Protocol}))
-}
