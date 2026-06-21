@@ -17,13 +17,12 @@ type NetworkRouterStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions holds the conditions for the NetworkRouter.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// RoutingPeerID is the id of the created routing peer.
-	RoutingPeerID *string `json:"routingPeerID,omitempty"`
-	// NetworkID is the id of the network the routing peer was created in.
+	// NetworkID is the id of the network the router is created in.
 	NetworkID *string `json:"networkID,omitempty"`
-	// ServiceCIDRResources tracks the subnet network resources created for
-	// ServiceCIDRs, for idempotent reconcile and cleanup.
-	ServiceCIDRResources []ServiceCIDRResourceApplyConfiguration `json:"serviceCIDRResources,omitempty"`
+	// RouterID is the id of the created NetBird router.
+	RouterID *string `json:"routerID,omitempty"`
+	// GroupID is the id of the peer group bound to the router.
+	GroupID *string `json:"groupID,omitempty"`
 }
 
 // NetworkRouterStatusApplyConfiguration constructs a declarative configuration of the NetworkRouterStatus type for use with
@@ -53,14 +52,6 @@ func (b *NetworkRouterStatusApplyConfiguration) WithConditions(values ...*v1.Con
 	return b
 }
 
-// WithRoutingPeerID sets the RoutingPeerID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the RoutingPeerID field is set to the value of the last call.
-func (b *NetworkRouterStatusApplyConfiguration) WithRoutingPeerID(value string) *NetworkRouterStatusApplyConfiguration {
-	b.RoutingPeerID = &value
-	return b
-}
-
 // WithNetworkID sets the NetworkID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the NetworkID field is set to the value of the last call.
@@ -69,15 +60,18 @@ func (b *NetworkRouterStatusApplyConfiguration) WithNetworkID(value string) *Net
 	return b
 }
 
-// WithServiceCIDRResources adds the given value to the ServiceCIDRResources field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the ServiceCIDRResources field.
-func (b *NetworkRouterStatusApplyConfiguration) WithServiceCIDRResources(values ...*ServiceCIDRResourceApplyConfiguration) *NetworkRouterStatusApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithServiceCIDRResources")
-		}
-		b.ServiceCIDRResources = append(b.ServiceCIDRResources, *values[i])
-	}
+// WithRouterID sets the RouterID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RouterID field is set to the value of the last call.
+func (b *NetworkRouterStatusApplyConfiguration) WithRouterID(value string) *NetworkRouterStatusApplyConfiguration {
+	b.RouterID = &value
+	return b
+}
+
+// WithGroupID sets the GroupID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GroupID field is set to the value of the last call.
+func (b *NetworkRouterStatusApplyConfiguration) WithGroupID(value string) *NetworkRouterStatusApplyConfiguration {
+	b.GroupID = &value
 	return b
 }

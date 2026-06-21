@@ -26,8 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gwv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 
@@ -47,8 +45,6 @@ func init() {
 	kruntimeutil.Must(clientgoscheme.AddToScheme(scheme))
 
 	kruntimeutil.Must(corev1.AddToScheme(scheme))
-	kruntimeutil.Must(gwv1.Install(scheme))
-	kruntimeutil.Must(gwv1alpha2.Install(scheme))
 	kruntimeutil.Must(nbv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -60,13 +56,14 @@ func main() {
 		managementURL      string
 		netbirdClientImage string
 		netbirdAPIKey      string
-		gatewayAPIEnabled  bool
+		advertiseLBs       bool
 	)
 	flag.StringVar(&runtimeNamespace, "runtime-namespace", "", "Namespace the controller is running in")
 	flag.StringVar(&managementURL, "netbird-management-url", "https://api.netbird.io", "Management service URL")
 	flag.StringVar(&netbirdClientImage, "netbird-client-image", "", "Image for netbird client container")
 	flag.StringVar(&netbirdAPIKey, "netbird-api-key", "", "API key for NetBird API operations")
-	flag.BoolVar(&gatewayAPIEnabled, "gateway-api-enabled", false, "When true Gateway API resources will be reconciled.")
+	flag.BoolVar(&advertiseLBs, "advertise-loadbalancers", true,
+		"When true, Service type=LoadBalancer are advertised into NetBird by default (namespace/Service annotation netbird.io/advertise overrides).")
 
 	// Controller generic flags
 	var (
@@ -184,7 +181,7 @@ func main() {
 		}
 	}
 
-	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, gatewayAPIEnabled); err != nil {
+	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs); err != nil {
 		setupLog.Error(err, "unable to set up controllers")
 		os.Exit(1)
 	}
@@ -220,7 +217,7 @@ func main() {
 
 // setupControllers registers the NetBird controllers that require API access.
 // It is a no-op (with a log line) when no API key is configured.
-func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, gatewayAPIEnabled bool) error {
+func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs bool) error {
 	if len(netbirdAPIKey) == 0 {
 		setupLog.Info("netbird API key not provided, ingress capabilities disabled")
 		return nil
@@ -246,22 +243,6 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup Group controller: %w", err)
 	}
-	if err := (&controller.NetworkRouterReconciler{
-		Client:        mgr.GetClient(),
-		Netbird:       nbClient,
-		ClientImage:   netbirdClientImage,
-		ManagementURL: managementURL,
-		Recorder:      mgr.GetEventRecorderFor("networkrouter"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup NetworkRouter controller: %w", err)
-	}
-	if err := (&controller.NetworkResourceReconciler{
-		Client:   mgr.GetClient(),
-		Netbird:  nbClient,
-		Recorder: mgr.GetEventRecorderFor("networkresource"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup NetworkResource controller: %w", err)
-	}
 	if err := (&controller.ClusterProxyReconciler{
 		Client:        mgr.GetClient(),
 		ApiKey:        netbirdAPIKey,
@@ -271,36 +252,40 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		return fmt.Errorf("setup ClusterProxy controller: %w", err)
 	}
 
-	if !gatewayAPIEnabled {
-		return nil
+	// Layer-1 NetBird-mirror controllers.
+	if err := controller.NewNetworkReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("network")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup Network controller: %w", err)
 	}
-	if err := (&controller.GatewayClassReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup GatewayClass controller: %w", err)
+	if err := controller.NewNetworkResourceReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("networkresource")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup NetworkResource controller: %w", err)
 	}
-	if err := (&controller.GatewayReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup Gateway controller: %w", err)
+	if err := controller.NewDNSZoneReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("dnszone")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup DNSZone controller: %w", err)
 	}
-	if err := (&controller.HTTPRouteReconciler{
-		Client:   mgr.GetClient(),
-		Netbird:  nbClient,
-		Recorder: mgr.GetEventRecorderFor("httproute"),
-	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup HTTPRoute controller: %w", err)
+	if err := controller.NewDNSRecordReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("dnsrecord")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup DNSRecord controller: %w", err)
 	}
-	if err := (&controller.TCPRouteReconciler{
-		Client:   mgr.GetClient(),
-		Recorder: mgr.GetEventRecorderFor("tcproute"),
+
+	if err := (&controller.NetworkRouterReconciler{
+		Client:        mgr.GetClient(),
+		Netbird:       nbClient,
+		ClientImage:   netbirdClientImage,
+		ManagementURL: managementURL,
+		Recorder:      mgr.GetEventRecorderFor("networkrouter"),
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup TCPRoute controller: %w", err)
+		return fmt.Errorf("setup NetworkRouter controller: %w", err)
 	}
-	if err := (&controller.NBServicePolicyReconciler{
-		Client: mgr.GetClient(),
+
+	// Translation + exposure.
+	if err := (&controller.LoadBalancerReconciler{
+		Client:           mgr.GetClient(),
+		DefaultAdvertise: advertiseLBs,
+		Recorder:         mgr.GetEventRecorderFor("loadbalancer"),
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("setup NBServicePolicy controller: %w", err)
+		return fmt.Errorf("setup LoadBalancer controller: %w", err)
+	}
+	if err := controller.NewReverseProxyServiceReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("reverseproxyservice")).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup ReverseProxyService controller: %w", err)
 	}
 	return nil
 }

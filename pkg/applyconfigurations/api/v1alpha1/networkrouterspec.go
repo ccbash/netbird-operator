@@ -7,28 +7,21 @@ package v1alpha1
 // NetworkRouterSpecApplyConfiguration represents a declarative configuration of the NetworkRouterSpec type for use
 // with apply.
 //
-// NetworkRouterSpec defines the desired state of NetworkRouter.
+// NetworkRouterSpec mirrors the NetBird router API
+// (POST /api/networks/{network}/routers) and adds the routing-peer source: an
+// existing NetBird group, or a netbird-client DaemonSet the operator deploys.
 type NetworkRouterSpecApplyConfiguration struct {
-	// DNSZoneRef is a reference to the DNS zone used to create records for resources.
-	DNSZoneRef *DNSZoneReferenceApplyConfiguration `json:"dnsZoneRef,omitempty"`
-	// ServiceCIDRs are CIDRs routed into the NetBird network as subnet
-	// resources, so that addresses in these ranges (e.g. the cluster's IPv4
-	// and IPv6 Service CIDRs) are reachable through this router's routing
-	// peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP
-	// in one of these ranges and route to it via the matching subnet resource.
-	ServiceCIDRs []string `json:"serviceCIDRs,omitempty"`
-	// ResourceGroups are the NetBird groups assigned to the resources created
-	// in this router's network — both the ServiceCIDRs subnet resources and the
-	// per-service resources backing HTTPRoutes (the latter inherit these unless
-	// the NetworkResource sets its own Groups). Access policies target these
-	// groups to grant peers access to the routed resources.
-	ResourceGroups []GroupReferenceApplyConfiguration `json:"resourceGroups,omitempty"`
-	// Netbird client image.
-	Image *string `json:"image,omitempty"`
-	// Log level for the Netbird client.
-	LogLevel *string `json:"logLevel,omitempty"`
-	// WorkloadOverride contains configuration that will override the default workload.
-	WorkloadOverride *WorkloadOverrideApplyConfiguration `json:"workloadOverride,omitempty"`
+	// NetworkRef references the Network this router belongs to. The Network must
+	// be Ready; its status.networkID identifies the NetBird network.
+	NetworkRef *CrossNamespaceReferenceApplyConfiguration `json:"networkRef,omitempty"`
+	// Peers selects the routing peers — exactly one of group or deploy.
+	Peers *NetworkRouterPeersApplyConfiguration `json:"peers,omitempty"`
+	// Masquerade makes the routing peers SNAT traffic to the routed resources.
+	Masquerade *bool `json:"masquerade,omitempty"`
+	// Metric is the route metric; the lowest number wins.
+	Metric *int `json:"metric,omitempty"`
+	// Enabled controls whether the router is active.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // NetworkRouterSpecApplyConfiguration constructs a declarative configuration of the NetworkRouterSpec type for use with
@@ -37,57 +30,42 @@ func NetworkRouterSpec() *NetworkRouterSpecApplyConfiguration {
 	return &NetworkRouterSpecApplyConfiguration{}
 }
 
-// WithDNSZoneRef sets the DNSZoneRef field in the declarative configuration to the given value
+// WithNetworkRef sets the NetworkRef field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DNSZoneRef field is set to the value of the last call.
-func (b *NetworkRouterSpecApplyConfiguration) WithDNSZoneRef(value *DNSZoneReferenceApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
-	b.DNSZoneRef = value
+// If called multiple times, the NetworkRef field is set to the value of the last call.
+func (b *NetworkRouterSpecApplyConfiguration) WithNetworkRef(value *CrossNamespaceReferenceApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
+	b.NetworkRef = value
 	return b
 }
 
-// WithServiceCIDRs adds the given value to the ServiceCIDRs field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the ServiceCIDRs field.
-func (b *NetworkRouterSpecApplyConfiguration) WithServiceCIDRs(values ...string) *NetworkRouterSpecApplyConfiguration {
-	for i := range values {
-		b.ServiceCIDRs = append(b.ServiceCIDRs, values[i])
-	}
-	return b
-}
-
-// WithResourceGroups adds the given value to the ResourceGroups field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the ResourceGroups field.
-func (b *NetworkRouterSpecApplyConfiguration) WithResourceGroups(values ...*GroupReferenceApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithResourceGroups")
-		}
-		b.ResourceGroups = append(b.ResourceGroups, *values[i])
-	}
-	return b
-}
-
-// WithImage sets the Image field in the declarative configuration to the given value
+// WithPeers sets the Peers field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Image field is set to the value of the last call.
-func (b *NetworkRouterSpecApplyConfiguration) WithImage(value string) *NetworkRouterSpecApplyConfiguration {
-	b.Image = &value
+// If called multiple times, the Peers field is set to the value of the last call.
+func (b *NetworkRouterSpecApplyConfiguration) WithPeers(value *NetworkRouterPeersApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
+	b.Peers = value
 	return b
 }
 
-// WithLogLevel sets the LogLevel field in the declarative configuration to the given value
+// WithMasquerade sets the Masquerade field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the LogLevel field is set to the value of the last call.
-func (b *NetworkRouterSpecApplyConfiguration) WithLogLevel(value string) *NetworkRouterSpecApplyConfiguration {
-	b.LogLevel = &value
+// If called multiple times, the Masquerade field is set to the value of the last call.
+func (b *NetworkRouterSpecApplyConfiguration) WithMasquerade(value bool) *NetworkRouterSpecApplyConfiguration {
+	b.Masquerade = &value
 	return b
 }
 
-// WithWorkloadOverride sets the WorkloadOverride field in the declarative configuration to the given value
+// WithMetric sets the Metric field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the WorkloadOverride field is set to the value of the last call.
-func (b *NetworkRouterSpecApplyConfiguration) WithWorkloadOverride(value *WorkloadOverrideApplyConfiguration) *NetworkRouterSpecApplyConfiguration {
-	b.WorkloadOverride = value
+// If called multiple times, the Metric field is set to the value of the last call.
+func (b *NetworkRouterSpecApplyConfiguration) WithMetric(value int) *NetworkRouterSpecApplyConfiguration {
+	b.Metric = &value
+	return b
+}
+
+// WithEnabled sets the Enabled field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Enabled field is set to the value of the last call.
+func (b *NetworkRouterSpecApplyConfiguration) WithEnabled(value bool) *NetworkRouterSpecApplyConfiguration {
+	b.Enabled = &value
 	return b
 }

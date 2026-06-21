@@ -13,7 +13,8 @@ import (
 // NetworkRouterApplyConfiguration represents a declarative configuration of the NetworkRouter type for use
 // with apply.
 //
-// NetworkRouter is the Schema for the networkrouters API.
+// NetworkRouter is the Schema for the networkrouters API: a NetBird router (a
+// peer group bound to a network) plus its routing-peer source.
 type NetworkRouterApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

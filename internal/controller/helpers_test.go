@@ -7,15 +7,14 @@ import (
 
 	"github.com/go-openapi/testify/v2/require"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
-func TestFamilyResourceName(t *testing.T) {
+func TestChildName(t *testing.T) {
 	t.Parallel()
-	// Names are suffixed with the IP family so the IPv4 and IPv6 host resources
-	// for a Service coexist (names are unique within a network).
-	require.Equal(t, "uid-1234-ipv4", familyResourceName(types.UID("uid-1234"), corev1.IPv4Protocol))
-	require.Equal(t, "uid-1234-ipv6", familyResourceName(types.UID("uid-1234"), corev1.IPv6Protocol))
+	// Route children are suffixed with the IP family so the IPv4 and IPv6
+	// resources/records for a Service coexist (names are unique within a kind).
+	require.Equal(t, "app-ipv4", childName("app", corev1.IPv4Protocol))
+	require.Equal(t, "app-ipv6", childName("app", corev1.IPv6Protocol))
 }
 
 func TestIPFamilyOf(t *testing.T) {

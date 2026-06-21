@@ -15,6 +15,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.networkRef.name
+      name: Network
+      type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
@@ -24,7 +27,9 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NetworkRouter is the Schema for the networkrouters API.
+        description: |-
+          NetworkRouter is the Schema for the networkrouters API: a NetBird router (a
+          peer group bound to a network) plus its routing-peer source.
         properties:
           apiVersion:
             description: |-
@@ -44,107 +49,112 @@ spec:
           metadata:
             type: object
           spec:
-            description: NetworkRouterSpec defines the desired state of NetworkRouter.
+            description: |-
+              NetworkRouterSpec mirrors the NetBird router API
+              (POST /api/networks/{network}/routers) and adds the routing-peer source: an
+              existing NetBird group, or a netbird-client DaemonSet the operator deploys.
             properties:
-              dnsZoneRef:
-                description: DNSZoneRef is a reference to the DNS zone used to create
-                  records for resources.
+              enabled:
+                default: true
+                description: Enabled controls whether the router is active.
+                type: boolean
+              masquerade:
+                default: true
+                description: Masquerade makes the routing peers SNAT traffic to the
+                  routed resources.
+                type: boolean
+              metric:
+                default: 9999
+                description: Metric is the route metric; the lowest number wins.
+                maximum: 9999
+                minimum: 1
+                type: integer
+              networkRef:
+                description: |-
+                  NetworkRef references the Network this router belongs to. The Network must
+                  be Ready; its status.networkID identifies the NetBird network.
                 properties:
                   name:
-                    description: Name is the domain name of an existing Netbird DNS
-                      zone, e.g. "example.com".
+                    description: Name of the referent.
+                    type: string
+                  namespace:
+                    description: Namespace of the referent.
                     type: string
                 required:
                 - name
+                - namespace
                 type: object
-              image:
-                description: Netbird client image.
-                type: string
-              logLevel:
-                description: Log level for the Netbird client.
-                enum:
-                - error
-                - warn
-                - info
-                - debug
-                - trace
-                type: string
-              resourceGroups:
-                description: |-
-                  ResourceGroups are the NetBird groups assigned to the resources created
-                  in this router's network — both the ServiceCIDRs subnet resources and the
-                  per-service resources backing HTTPRoutes (the latter inherit these unless
-                  the NetworkResource sets its own Groups). Access policies target these
-                  groups to grant peers access to the routed resources.
-                items:
-                  properties:
-                    id:
-                      description: ID is the id of the group.
-                      type: string
-                    localRef:
-                      description: LocalReference is a reference to a group in the
-                        same namespace.
-                      properties:
-                        name:
-                          default: ""
-                          description: |-
-                            Name of the referent.
-                            This field is effectively required, but due to backwards compatibility is
-                            allowed to be empty. Instances of this type with an empty value here are
-                            almost certainly wrong.
-                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                          type: string
-                      type: object
-                      x-kubernetes-map-type: atomic
-                    name:
-                      description: Name is the name of the group.
-                      type: string
-                  type: object
-                  x-kubernetes-validations:
-                  - message: Exactly one of id, name, or localRef must be set
-                    rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
-                type: array
-              serviceCIDRs:
-                description: |-
-                  ServiceCIDRs are CIDRs routed into the NetBird network as subnet
-                  resources, so that addresses in these ranges (e.g. the cluster's IPv4
-                  and IPv6 Service CIDRs) are reachable through this router's routing
-                  peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP
-                  in one of these ranges and route to it via the matching subnet resource.
-                items:
-                  maxLength: 43
-                  type: string
-                maxItems: 64
-                type: array
                 x-kubernetes-validations:
-                - message: serviceCIDRs entries must be valid CIDRs
-                  rule: self.all(c, isCIDR(c))
-              workloadOverride:
-                description: WorkloadOverride contains configuration that will override
-                  the default workload.
+                - message: Value is immutable
+                  rule: self == oldSelf
+              peers:
+                description: Peers selects the routing peers — exactly one of group
+                  or deploy.
                 properties:
-                  annotations:
-                    additionalProperties:
-                      type: string
-                    description: Annotations that will be added.
+                  deploy:
+                    description: |-
+                      Deploy runs a hostNetwork DaemonSet of netbird-client as the routing peers;
+                      the operator manages its Group, SetupKey and DaemonSet.
+                    properties:
+                      image:
+                        description: |-
+                          Image overrides the netbird-client image (default: the operator's
+                          configured client image).
+                        type: string
+                      logLevel:
+                        description: LogLevel for the netbird client.
+                        enum:
+                        - error
+                        - warn
+                        - info
+                        - debug
+                        - trace
+                        type: string
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: 'NodeSelector limits the DaemonSet to matching
+                          nodes (default: all nodes).'
+                        type: object
                     type: object
-                  labels:
-                    additionalProperties:
-                      type: string
-                    description: Labels that will be added.
+                  group:
+                    description: |-
+                      Group reuses an existing NetBird group as the routing peers (e.g. the group
+                      the host-level netbird on the cluster nodes auto-joins). The operator
+                      creates only the router and deploys nothing.
+                    properties:
+                      id:
+                        description: ID is the id of the group.
+                        type: string
+                      localRef:
+                        description: LocalReference is a reference to a group in the
+                          same namespace.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      name:
+                        description: Name is the name of the group.
+                        type: string
                     type: object
-                  podTemplate:
-                    description: PodTemplate overrides the pod template.
-                    x-kubernetes-preserve-unknown-fields: true
-                  replicas:
-                    default: 3
-                    description: Replicas sets the amount of client replicas.
-                    format: int32
-                    minimum: 1
-                    type: integer
+                    x-kubernetes-validations:
+                    - message: Exactly one of id, name, or localRef must be set
+                      rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of peers.group or peers.deploy must be set
+                  rule: has(self.group) != has(self.deploy)
             required:
-            - dnsZoneRef
+            - networkRef
+            - peers
             type: object
           status:
             default:
@@ -211,36 +221,20 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              groupID:
+                description: GroupID is the id of the peer group bound to the router.
+                type: string
               networkID:
-                description: NetworkID is the id of the network the routing peer was
-                  created in.
+                description: NetworkID is the id of the network the router is created
+                  in.
                 type: string
               observedGeneration:
                 description: ObservedGeneration is the last reconciled generation.
                 format: int64
                 type: integer
-              routingPeerID:
-                description: RoutingPeerID is the id of the created routing peer.
+              routerID:
+                description: RouterID is the id of the created NetBird router.
                 type: string
-              serviceCIDRResources:
-                description: |-
-                  ServiceCIDRResources tracks the subnet network resources created for
-                  ServiceCIDRs, for idempotent reconcile and cleanup.
-                items:
-                  description: ServiceCIDRResource tracks the NetBird subnet resource
-                    created for a CIDR.
-                  properties:
-                    cidr:
-                      description: CIDR is the routed range.
-                      type: string
-                    resourceID:
-                      description: ResourceID is the NetBird network resource id.
-                      type: string
-                  required:
-                  - cidr
-                  - resourceID
-                  type: object
-                type: array
             type: object
         required:
         - spec

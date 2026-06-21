@@ -13,7 +13,8 @@ import (
 // NetworkResourceApplyConfiguration represents a declarative configuration of the NetworkResource type for use
 // with apply.
 //
-// NetworkResource is the Schema for the networkresources API.
+// NetworkResource is the Schema for the networkresources API. It is a thin
+// mirror of a NetBird network resource (one address).
 type NetworkResourceApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

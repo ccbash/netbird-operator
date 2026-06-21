@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+package v1alpha1
+
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// CrowdsecMode selects how the proxy cluster's CrowdSec IP-reputation check is
+// applied. Only effective when the proxy cluster supports CrowdSec.
+// +kubebuilder:validation:Enum=off;observe;enforce
+type CrowdsecMode string
+
+const (
+	CrowdsecModeOff     CrowdsecMode = "off"
+	CrowdsecModeObserve CrowdsecMode = "observe"
+	CrowdsecModeEnforce CrowdsecMode = "enforce"
+)
+
+// AccessRestrictions are connection-level restrictions based on IP address or
+// geography, applied to the reverse-proxy service.
+type AccessRestrictions struct {
+	// AllowedCidrs is a CIDR allowlist. If non-empty, only matching source IPs
+	// are allowed. Evaluated before BlockedCidrs.
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=43
+	// +kubebuilder:validation:XValidation:rule="self.all(c, isCIDR(c))",message="allowedCidrs entries must be valid CIDRs"
+	AllowedCidrs []string `json:"allowedCidrs,omitempty"`
+
+	// BlockedCidrs is a CIDR blocklist. Matching source IPs are rejected.
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=43
+	// +kubebuilder:validation:XValidation:rule="self.all(c, isCIDR(c))",message="blockedCidrs entries must be valid CIDRs"
+	BlockedCidrs []string `json:"blockedCidrs,omitempty"`
+
+	// AllowedCountries is an ISO 3166-1 alpha-2 country-code allowlist. If
+	// non-empty, only these countries are permitted.
+	// +optional
+	// +kubebuilder:validation:MaxItems=250
+	// +kubebuilder:validation:items:MaxLength=2
+	// +kubebuilder:validation:XValidation:rule="self.all(c, c.matches('^[A-Za-z]{2}$'))",message="allowedCountries entries must be ISO 3166-1 alpha-2 codes"
+	AllowedCountries []string `json:"allowedCountries,omitempty"`
+
+	// BlockedCountries is an ISO 3166-1 alpha-2 country-code blocklist.
+	// +optional
+	// +kubebuilder:validation:MaxItems=250
+	// +kubebuilder:validation:items:MaxLength=2
+	// +kubebuilder:validation:XValidation:rule="self.all(c, c.matches('^[A-Za-z]{2}$'))",message="blockedCountries entries must be ISO 3166-1 alpha-2 codes"
+	BlockedCountries []string `json:"blockedCountries,omitempty"`
+}
+
+// ReverseProxyBackend names a LoadBalancer Service this service proxies to. The
+// Service must be advertised (have a DNSRecord); the proxy targets its dualstack
+// FQDN, so IPv4/IPv6 is transparent.
+type ReverseProxyBackend struct {
+	// ServiceRef names the LoadBalancer Service to proxy to, in the same
+	// namespace as the ReverseProxyService.
+	ServiceRef corev1.LocalObjectReference `json:"serviceRef"`
+
+	// Port the proxy dials on the backend. Defaults to the Service's first port.
+	// +optional
+	Port int `json:"port,omitempty"`
+
+	// Path is the URL path prefix this backend serves (HTTP). Defaults to "/".
+	// +optional
+	Path string `json:"path,omitempty"`
+}
+
+// ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
+// is admin-authored — creating one is the explicit decision to expose Services
+// through the NetBird reverse proxy, internally or externally. It mirrors the
+// NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
+// targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
+// +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
+type ReverseProxyServiceSpec struct {
+	// Backends are the LoadBalancer Services this service proxies to, by path.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
+	Backends []ReverseProxyBackend `json:"backends"`
+
+	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
+	// serves this service, e.g. "gate.example.com". The operator resolves it to
+	// a proxy-cluster ID and points the service's targets at it.
+	// +kubebuilder:validation:MinLength=1
+	ProxyCluster string `json:"proxyCluster"`
+
+	// Domain is the hostname the service is published under.
+	// +kubebuilder:validation:MinLength=1
+	Domain string `json:"domain"`
+
+	// Private, when true, makes the service NetBird-only: inbound peers
+	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
+	// auto-generated from AccessGroups.
+	// +optional
+	Private *bool `json:"private,omitempty"`
+
+	// AccessGroups are the NetBird groups whose peers may reach a private
+	// service over the tunnel. Required when Private is true; ignored otherwise.
+	// +optional
+	AccessGroups []GroupReference `json:"accessGroups,omitempty"`
+
+	// CrowdsecMode sets the CrowdSec IP-reputation handling for the service.
+	// +optional
+	CrowdsecMode *CrowdsecMode `json:"crowdsecMode,omitempty"`
+
+	// AccessRestrictions sets IP/geo connection-level restrictions.
+	// +optional
+	AccessRestrictions *AccessRestrictions `json:"accessRestrictions,omitempty"`
+
+	// PassHostHeader, when true, forwards the original client Host header to the
+	// backend instead of rewriting it to the backend address.
+	// +optional
+	PassHostHeader *bool `json:"passHostHeader,omitempty"`
+
+	// RewriteRedirects, when true, rewrites Location headers in backend
+	// responses to replace the backend address with the public domain.
+	// +optional
+	RewriteRedirects *bool `json:"rewriteRedirects,omitempty"`
+}
+
+// ReverseProxyServiceStatus defines the observed state of ReverseProxyService.
+type ReverseProxyServiceStatus struct {
+	// ObservedGeneration is the last reconciled generation.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Conditions holds the conditions for the ReverseProxyService.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ServiceID is the id of the created NetBird reverse-proxy service.
+	// +optional
+	ServiceID string `json:"serviceID,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource
+// +kubebuilder:printcolumn:name="Domain",type="string",JSONPath=".spec.domain",description=""
+// +kubebuilder:printcolumn:name="Private",type="boolean",JSONPath=".spec.private",description=""
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""
+
+// ReverseProxyService publishes LoadBalancer Services through the NetBird
+// reverse proxy, internally or externally. It is the admin's expose-or-not
+// decision.
+type ReverseProxyService struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// +required
+	Spec ReverseProxyServiceSpec `json:"spec"`
+
+	// +kubebuilder:default={"observedGeneration":-1}
+	Status ReverseProxyServiceStatus `json:"status,omitempty"`
+}
+
+// GetConditions returns the status conditions of the object.
+func (s *ReverseProxyService) GetConditions() []metav1.Condition {
+	return s.Status.Conditions
+}
+
+// SetConditions sets the status conditions on the object.
+func (s *ReverseProxyService) SetConditions(conditions []metav1.Condition) {
+	s.Status.Conditions = conditions
+}
+
+// +kubebuilder:object:root=true
+
+// ReverseProxyServiceList contains a list of ReverseProxyService.
+type ReverseProxyServiceList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitzero"`
+	Items           []ReverseProxyService `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&ReverseProxyService{}, &ReverseProxyServiceList{})
+}

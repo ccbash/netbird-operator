@@ -17,16 +17,10 @@ type NetworkResourceStatusApplyConfiguration struct {
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 	// Conditions holds the conditions for the NetworkResource.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// NetworkID is the id of the network the resources are created in.
+	// NetworkID is the id of the network the resource is created in.
 	NetworkID *string `json:"networkID,omitempty"`
-	// Resources are the NetBird host resources created for the Service, one per
-	// exposed IP family.
-	Resources []NetworkResourceEntryApplyConfiguration `json:"resources,omitempty"`
-	// DNSZoneID is the id of the zone the DNS records are created in.
-	DNSZoneID *string `json:"dnsZoneID,omitempty"`
-	// DNSRecords are the DNS records created for the resource — one A record
-	// per IPv4 ClusterIP and one AAAA per IPv6 ClusterIP.
-	DNSRecords []DNSRecordStatusApplyConfiguration `json:"dnsRecords,omitempty"`
+	// ResourceID is the id of the created NetBird resource.
+	ResourceID *string `json:"resourceID,omitempty"`
 }
 
 // NetworkResourceStatusApplyConfiguration constructs a declarative configuration of the NetworkResourceStatus type for use with
@@ -64,36 +58,10 @@ func (b *NetworkResourceStatusApplyConfiguration) WithNetworkID(value string) *N
 	return b
 }
 
-// WithResources adds the given value to the Resources field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Resources field.
-func (b *NetworkResourceStatusApplyConfiguration) WithResources(values ...*NetworkResourceEntryApplyConfiguration) *NetworkResourceStatusApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithResources")
-		}
-		b.Resources = append(b.Resources, *values[i])
-	}
-	return b
-}
-
-// WithDNSZoneID sets the DNSZoneID field in the declarative configuration to the given value
+// WithResourceID sets the ResourceID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DNSZoneID field is set to the value of the last call.
-func (b *NetworkResourceStatusApplyConfiguration) WithDNSZoneID(value string) *NetworkResourceStatusApplyConfiguration {
-	b.DNSZoneID = &value
-	return b
-}
-
-// WithDNSRecords adds the given value to the DNSRecords field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the DNSRecords field.
-func (b *NetworkResourceStatusApplyConfiguration) WithDNSRecords(values ...*DNSRecordStatusApplyConfiguration) *NetworkResourceStatusApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithDNSRecords")
-		}
-		b.DNSRecords = append(b.DNSRecords, *values[i])
-	}
+// If called multiple times, the ResourceID field is set to the value of the last call.
+func (b *NetworkResourceStatusApplyConfiguration) WithResourceID(value string) *NetworkResourceStatusApplyConfiguration {
+	b.ResourceID = &value
 	return b
 }

@@ -10,8 +10,12 @@ rules:
   resources:
   - setupkeys
   - groups
+  - networks
   - networkrouters
   - networkresources
+  - dnszones
+  - dnsrecords
+  - reverseproxyservices
   - sidecarprofiles
   - clusterproxies
   verbs:
@@ -25,26 +29,14 @@ rules:
 - apiGroups:
   - netbird.io
   resources:
-  - nbservicepolicies
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - netbird.io
-  resources:
-  - nbservicepolicies/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - netbird.io
-  resources:
   - setupkeys/status
   - groups/status
+  - networks/status
   - networkrouters/status
   - networkresources/status
+  - dnszones/status
+  - dnsrecords/status
+  - reverseproxyservices/status
   - sidecarprofiles/status
   - clusterproxies/status
   verbs:
@@ -56,8 +48,12 @@ rules:
   resources:
   - setupkeys/finalizers
   - groups/finalizers
+  - networks/finalizers
   - networkrouters/finalizers
   - networkresources/finalizers
+  - dnszones/finalizers
+  - dnsrecords/finalizers
+  - reverseproxyservices/finalizers
   - sidecarprofiles/finalizers
   verbs:
   - update
@@ -81,6 +77,7 @@ rules:
   - apps
   resources:
   - deployments
+  - daemonsets
   verbs:
   - get
   - patch
@@ -133,29 +130,6 @@ rules:
   - create
   - delete
 {{- end }}
-{{- end }}
-{{- if .Values.gatewayAPI.enabled }}
-- apiGroups: ["gateway.networking.k8s.io"]
-  resources:
-    - gatewayclasses
-    - gateways
-    - httproutes
-    - tcproutes
-  verbs:
-    - get
-    - list
-    - watch
-    - update
-    - patch
-- apiGroups: ["gateway.networking.k8s.io"]
-  resources:
-    - gatewayclasses/status
-    - gateways/status
-    - httproutes/status
-    - tcproutes/status
-  verbs:
-    - update
-    - patch
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

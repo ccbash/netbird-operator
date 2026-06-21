@@ -4,17 +4,23 @@
 
 package v1alpha1
 
+import (
+	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+)
+
 // DNSRecordStatusApplyConfiguration represents a declarative configuration of the DNSRecordStatus type for use
 // with apply.
 //
-// DNSRecordStatus tracks a single DNS record managed for a NetworkResource.
+// DNSRecordStatus defines the observed state of DNSRecord.
 type DNSRecordStatusApplyConfiguration struct {
-	// Type is the record type (A or AAAA).
-	Type *string `json:"type,omitempty"`
-	// Content is the record content (the ClusterIP).
-	Content *string `json:"content,omitempty"`
-	// ID is the Netbird DNS record id.
-	ID *string `json:"id,omitempty"`
+	// ObservedGeneration is the last reconciled generation.
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+	// Conditions holds the conditions for the DNSRecord.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// ZoneID is the id of the zone the record is created in.
+	ZoneID *string `json:"zoneID,omitempty"`
+	// RecordID is the id of the created NetBird DNS record.
+	RecordID *string `json:"recordID,omitempty"`
 }
 
 // DNSRecordStatusApplyConfiguration constructs a declarative configuration of the DNSRecordStatus type for use with
@@ -23,26 +29,39 @@ func DNSRecordStatus() *DNSRecordStatusApplyConfiguration {
 	return &DNSRecordStatusApplyConfiguration{}
 }
 
-// WithType sets the Type field in the declarative configuration to the given value
+// WithObservedGeneration sets the ObservedGeneration field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Type field is set to the value of the last call.
-func (b *DNSRecordStatusApplyConfiguration) WithType(value string) *DNSRecordStatusApplyConfiguration {
-	b.Type = &value
+// If called multiple times, the ObservedGeneration field is set to the value of the last call.
+func (b *DNSRecordStatusApplyConfiguration) WithObservedGeneration(value int64) *DNSRecordStatusApplyConfiguration {
+	b.ObservedGeneration = &value
 	return b
 }
 
-// WithContent sets the Content field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Content field is set to the value of the last call.
-func (b *DNSRecordStatusApplyConfiguration) WithContent(value string) *DNSRecordStatusApplyConfiguration {
-	b.Content = &value
+// WithConditions adds the given value to the Conditions field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Conditions field.
+func (b *DNSRecordStatusApplyConfiguration) WithConditions(values ...*v1.ConditionApplyConfiguration) *DNSRecordStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithConditions")
+		}
+		b.Conditions = append(b.Conditions, *values[i])
+	}
 	return b
 }
 
-// WithID sets the ID field in the declarative configuration to the given value
+// WithZoneID sets the ZoneID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ID field is set to the value of the last call.
-func (b *DNSRecordStatusApplyConfiguration) WithID(value string) *DNSRecordStatusApplyConfiguration {
-	b.ID = &value
+// If called multiple times, the ZoneID field is set to the value of the last call.
+func (b *DNSRecordStatusApplyConfiguration) WithZoneID(value string) *DNSRecordStatusApplyConfiguration {
+	b.ZoneID = &value
+	return b
+}
+
+// WithRecordID sets the RecordID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RecordID field is set to the value of the last call.
+func (b *DNSRecordStatusApplyConfiguration) WithRecordID(value string) *DNSRecordStatusApplyConfiguration {
+	b.RecordID = &value
 	return b
 }

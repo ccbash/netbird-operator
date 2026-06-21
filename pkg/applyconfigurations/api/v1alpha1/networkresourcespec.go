@@ -4,28 +4,30 @@
 
 package v1alpha1
 
-import (
-	v1 "k8s.io/api/core/v1"
-)
-
 // NetworkResourceSpecApplyConfiguration represents a declarative configuration of the NetworkResourceSpec type for use
 // with apply.
 //
-// NetworkResourceSpec defines the desired state of NetworkResource.
+// NetworkResourceSpec defines the desired state of NetworkResource. It mirrors
+// the NetBird network-resource API (POST /api/networks/{network}/resources) 1:1:
+// a single address routed into a network, with groups. DNS is handled
+// separately by DNSRecord; IP-family fan-out is done by the translation layer
+// (one NetworkResource per address family).
 type NetworkResourceSpecApplyConfiguration struct {
-	// NetworkRouterRef is a reference to the network and router where the resource will be created.
-	NetworkRouterRef *CrossNamespaceReferenceApplyConfiguration `json:"networkRouterRef,omitempty"`
-	// ServiceRef is a reference to the service to expose in the Network.
-	// Immutable: re-pointing at a different Service would change the resource's
-	// address in place — create a new NetworkResource instead.
-	ServiceRef *v1.LocalObjectReference `json:"serviceRef,omitempty"`
-	// Groups are references to groups that the resource will be a part of.
+	// NetworkRef references the Network this resource is created in. The Network
+	// must be Ready; its status.networkID identifies the NetBird network.
+	NetworkRef *CrossNamespaceReferenceApplyConfiguration `json:"networkRef,omitempty"`
+	// Name of the resource.
+	Name *string `json:"name,omitempty"`
+	// Address is the single resource address — an IP, CIDR, or domain. NetBird
+	// derives the resource type from it.
+	Address *string `json:"address,omitempty"`
+	// Description of the resource.
+	Description *string `json:"description,omitempty"`
+	// Groups are the NetBird groups this resource is a part of, referenced by
+	// name, id, or local Group reference.
 	Groups []GroupReferenceApplyConfiguration `json:"groups,omitempty"`
-	// IPFamilies selects which of the Service's ClusterIP families to expose.
-	// Each selected family gets its own NetBird host resource at that ClusterIP,
-	// so a dualstack Service is reachable over both. Defaults to all of the
-	// Service's ClusterIP families.
-	IPFamilies []v1.IPFamily `json:"ipFamilies,omitempty"`
+	// Enabled controls whether the resource is active. Defaults to true.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // NetworkResourceSpecApplyConfiguration constructs a declarative configuration of the NetworkResourceSpec type for use with
@@ -34,19 +36,35 @@ func NetworkResourceSpec() *NetworkResourceSpecApplyConfiguration {
 	return &NetworkResourceSpecApplyConfiguration{}
 }
 
-// WithNetworkRouterRef sets the NetworkRouterRef field in the declarative configuration to the given value
+// WithNetworkRef sets the NetworkRef field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the NetworkRouterRef field is set to the value of the last call.
-func (b *NetworkResourceSpecApplyConfiguration) WithNetworkRouterRef(value *CrossNamespaceReferenceApplyConfiguration) *NetworkResourceSpecApplyConfiguration {
-	b.NetworkRouterRef = value
+// If called multiple times, the NetworkRef field is set to the value of the last call.
+func (b *NetworkResourceSpecApplyConfiguration) WithNetworkRef(value *CrossNamespaceReferenceApplyConfiguration) *NetworkResourceSpecApplyConfiguration {
+	b.NetworkRef = value
 	return b
 }
 
-// WithServiceRef sets the ServiceRef field in the declarative configuration to the given value
+// WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ServiceRef field is set to the value of the last call.
-func (b *NetworkResourceSpecApplyConfiguration) WithServiceRef(value v1.LocalObjectReference) *NetworkResourceSpecApplyConfiguration {
-	b.ServiceRef = &value
+// If called multiple times, the Name field is set to the value of the last call.
+func (b *NetworkResourceSpecApplyConfiguration) WithName(value string) *NetworkResourceSpecApplyConfiguration {
+	b.Name = &value
+	return b
+}
+
+// WithAddress sets the Address field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Address field is set to the value of the last call.
+func (b *NetworkResourceSpecApplyConfiguration) WithAddress(value string) *NetworkResourceSpecApplyConfiguration {
+	b.Address = &value
+	return b
+}
+
+// WithDescription sets the Description field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Description field is set to the value of the last call.
+func (b *NetworkResourceSpecApplyConfiguration) WithDescription(value string) *NetworkResourceSpecApplyConfiguration {
+	b.Description = &value
 	return b
 }
 
@@ -63,12 +81,10 @@ func (b *NetworkResourceSpecApplyConfiguration) WithGroups(values ...*GroupRefer
 	return b
 }
 
-// WithIPFamilies adds the given value to the IPFamilies field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the IPFamilies field.
-func (b *NetworkResourceSpecApplyConfiguration) WithIPFamilies(values ...v1.IPFamily) *NetworkResourceSpecApplyConfiguration {
-	for i := range values {
-		b.IPFamilies = append(b.IPFamilies, values[i])
-	}
+// WithEnabled sets the Enabled field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Enabled field is set to the value of the last call.
+func (b *NetworkResourceSpecApplyConfiguration) WithEnabled(value bool) *NetworkResourceSpecApplyConfiguration {
+	b.Enabled = &value
 	return b
 }

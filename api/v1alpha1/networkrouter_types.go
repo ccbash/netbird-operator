@@ -3,76 +3,69 @@
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// NetworkRouterSpec defines the desired state of NetworkRouter.
+// NetworkRouterSpec mirrors the NetBird router API
+// (POST /api/networks/{network}/routers) and adds the routing-peer source: an
+// existing NetBird group, or a netbird-client DaemonSet the operator deploys.
 type NetworkRouterSpec struct {
-	// DNSZoneRef is a reference to the DNS zone used to create records for resources.
-	// +required
-	DNSZoneRef DNSZoneReference `json:"dnsZoneRef"`
+	// NetworkRef references the Network this router belongs to. The Network must
+	// be Ready; its status.networkID identifies the NetBird network.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	NetworkRef CrossNamespaceReference `json:"networkRef"`
 
-	// ServiceCIDRs are CIDRs routed into the NetBird network as subnet
-	// resources, so that addresses in these ranges (e.g. the cluster's IPv4
-	// and IPv6 Service CIDRs) are reachable through this router's routing
-	// peers. Reverse-proxy targets resolve a Service's DNS name to a ClusterIP
-	// in one of these ranges and route to it via the matching subnet resource.
+	// Peers selects the routing peers — exactly one of group or deploy.
+	Peers NetworkRouterPeers `json:"peers"`
+
+	// Masquerade makes the routing peers SNAT traffic to the routed resources.
 	// +optional
-	// +kubebuilder:validation:MaxItems=64
-	// +kubebuilder:validation:items:MaxLength=43
-	// +kubebuilder:validation:XValidation:rule="self.all(c, isCIDR(c))",message="serviceCIDRs entries must be valid CIDRs"
-	ServiceCIDRs []string `json:"serviceCIDRs,omitempty"`
+	// +kubebuilder:default=true
+	Masquerade bool `json:"masquerade"`
 
-	// ResourceGroups are the NetBird groups assigned to the resources created
-	// in this router's network — both the ServiceCIDRs subnet resources and the
-	// per-service resources backing HTTPRoutes (the latter inherit these unless
-	// the NetworkResource sets its own Groups). Access policies target these
-	// groups to grant peers access to the routed resources.
+	// Metric is the route metric; the lowest number wins.
 	// +optional
-	ResourceGroups []GroupReference `json:"resourceGroups,omitempty"`
+	// +kubebuilder:default=9999
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=9999
+	Metric int `json:"metric"`
 
-	// Netbird client image.
+	// Enabled controls whether the router is active.
+	// +optional
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+}
+
+// NetworkRouterPeers selects the routing peers. Exactly one field must be set.
+// +kubebuilder:validation:XValidation:rule="has(self.group) != has(self.deploy)",message="exactly one of peers.group or peers.deploy must be set"
+type NetworkRouterPeers struct {
+	// Group reuses an existing NetBird group as the routing peers (e.g. the group
+	// the host-level netbird on the cluster nodes auto-joins). The operator
+	// creates only the router and deploys nothing.
+	// +optional
+	Group *GroupReference `json:"group,omitempty"`
+
+	// Deploy runs a hostNetwork DaemonSet of netbird-client as the routing peers;
+	// the operator manages its Group, SetupKey and DaemonSet.
+	// +optional
+	Deploy *RouterDeploy `json:"deploy,omitempty"`
+}
+
+// RouterDeploy configures the netbird-client DaemonSet for peers.deploy.
+type RouterDeploy struct {
+	// NodeSelector limits the DaemonSet to matching nodes (default: all nodes).
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// Image overrides the netbird-client image (default: the operator's
+	// configured client image).
 	// +optional
 	Image string `json:"image,omitempty"`
 
-	// Log level for the Netbird client.
+	// LogLevel for the netbird client.
 	// +optional
 	// +kubebuilder:validation:Enum=error;warn;info;debug;trace
 	LogLevel string `json:"logLevel,omitempty"`
-
-	// WorkloadOverride contains configuration that will override the default workload.
-	// +optional
-	WorkloadOverride *WorkloadOverride `json:"workloadOverride,omitempty"`
-}
-
-// DNSZoneReference references a Netbird DNS zone by domain name.
-type DNSZoneReference struct {
-	// Name is the domain name of an existing Netbird DNS zone, e.g. "example.com".
-	// +required
-	Name string `json:"name"`
-}
-
-type WorkloadOverride struct {
-	// Labels that will be added.
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-
-	// Annotations that will be added.
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
-
-	// Replicas sets the amount of client replicas.
-	// +optional
-	// +kubebuilder:default=3
-	// +kubebuilder:validation:Minimum=1
-	Replicas *int32 `json:"replicas,omitempty"`
-
-	// PodTemplate overrides the pod template.
-	// +optional
-	// +kubebuilder:pruning:PreserveUnknownFields
-	// +kubebuilder:validation:Schemaless
-	PodTemplate *corev1.PodTemplateSpec `json:"podTemplate,omitempty"`
 }
 
 // NetworkRouterStatus defines the observed state of NetworkRouter.
@@ -87,36 +80,28 @@ type NetworkRouterStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// RoutingPeerID is the id of the created routing peer.
-	// +optional
-	RoutingPeerID string `json:"routingPeerID,omitempty"`
-
-	// NetworkID is the id of the network the routing peer was created in.
+	// NetworkID is the id of the network the router is created in.
 	// +optional
 	NetworkID string `json:"networkID,omitempty"`
 
-	// ServiceCIDRResources tracks the subnet network resources created for
-	// ServiceCIDRs, for idempotent reconcile and cleanup.
+	// RouterID is the id of the created NetBird router.
 	// +optional
-	ServiceCIDRResources []ServiceCIDRResource `json:"serviceCIDRResources,omitempty"`
-}
+	RouterID string `json:"routerID,omitempty"`
 
-// ServiceCIDRResource tracks the NetBird subnet resource created for a CIDR.
-type ServiceCIDRResource struct {
-	// CIDR is the routed range.
-	CIDR string `json:"cidr"`
-
-	// ResourceID is the NetBird network resource id.
-	ResourceID string `json:"resourceID"`
+	// GroupID is the id of the peer group bound to the router.
+	// +optional
+	GroupID string `json:"groupID,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource
+// +kubebuilder:printcolumn:name="Network",type="string",JSONPath=".spec.networkRef.name",description=""
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""
 
-// NetworkRouter is the Schema for the networkrouters API.
+// NetworkRouter is the Schema for the networkrouters API: a NetBird router (a
+// peer group bound to a network) plus its routing-peer source.
 type NetworkRouter struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

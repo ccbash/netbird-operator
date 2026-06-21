@@ -1,0 +1,35 @@
+# The NetBird network this cluster's LoadBalancer Services are advertised into.
+apiVersion: netbird.io/v1alpha1
+kind: Network
+metadata:
+  name: kube
+  namespace: netbird
+spec:
+  name: kube
+---
+# Routing peers for the network. This example reuses an existing NetBird group
+# (e.g. the group the host-level netbird on your nodes auto-joins via its setup
+# key) — the operator creates only the router and deploys nothing. To let the
+# operator run a hostNetwork netbird-client DaemonSet instead, replace
+# `peers.group` with `peers.deploy: {}`.
+apiVersion: netbird.io/v1alpha1
+kind: NetworkRouter
+metadata:
+  name: kube
+  namespace: netbird
+spec:
+  networkRef: { name: kube, namespace: netbird }
+  peers:
+    group: { name: kube-nodes }
+---
+# The DNS zone the operator publishes per-service records into. Adopted by name
+# if it already exists in NetBird.
+apiVersion: netbird.io/v1alpha1
+kind: DNSZone
+metadata:
+  name: kube
+  namespace: netbird
+spec:
+  name: kube.example.com
+  domain: kube.example.com
+  # distributionGroups: [ { name: All } ]   # who can resolve the records

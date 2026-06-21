@@ -158,8 +158,9 @@ netbirdAPI:
 
 #routingClientImage: "netbirdio/netbird:latest"
 
-gatewayAPI:
-  enabled: false
+# Advertise Service type=LoadBalancer into NetBird by default. Override per
+# namespace/Service with the annotation netbird.io/advertise: "true"|"false".
+advertiseLoadBalancers: true
 
 general:
   # General labels, applied to all created K8s resources
