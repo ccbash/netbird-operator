@@ -212,7 +212,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(services[0].Targets).To(HaveLen(1))
 			target := services[0].Targets[0]
 			Expect(target.TargetType).To(Equal(api.ServiceTargetTargetTypeCluster))
-			Expect(target.TargetId).To(Equal("cluster-1"))
+			Expect(target.TargetId).To(Equal("gate.test")) // cluster CNAME address, not the proxy-node id
 			Expect(target.Host).NotTo(BeNil())
 			Expect(*target.Host).To(Equal(fmt.Sprintf("app-%s.kube.example.com", ns)))
 			Expect(target.Port).To(Equal(80))

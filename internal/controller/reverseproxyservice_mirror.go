@@ -68,8 +68,10 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 			Port:       port,
 			Protocol:   api.ServiceTargetProtocolHttp,
 			TargetType: api.ServiceTargetTargetTypeCluster,
-			TargetId:   cluster.Id,
-			Options:    &api.ServiceTargetOptions{DirectUpstream: &direct},
+			// A cluster target references the cluster's CNAME address (e.g.
+			// gate.example.com), not cluster.Id which is a single proxy node.
+			TargetId: cluster.Address,
+			Options:  &api.ServiceTargetOptions{DirectUpstream: &direct},
 		}
 		if b.Path != "" {
 			path := b.Path

@@ -51,3 +51,5 @@ spec:
   proxyCluster: gate.example.com   # your NetBird reverse-proxy cluster address
   domain: nginx.example.com
   crowdsecMode: observe            # off | observe | enforce
+  passHostHeader: true             # forward the original Host to the backend
+  rewriteRedirects: false          # rewrite backend Location headers to the public domain
