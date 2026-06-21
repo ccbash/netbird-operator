@@ -104,16 +104,20 @@ spec:
   domain: search.ccbash.de
   proxyCluster: gate.ccbash.de
   private: false                 # external; true = internal mesh-only (same CRD)
-  rules:
-    - path: /
-      backend: { kind: Service, name: searxng }   # -> the Service's DNSRecord FQDN
-  # or: routeRef: { kind: HTTPRoute, name: searxng }   # lift paths + backends from a kgateway route
+  passHostHeader: true           # advanced toggles, optional
+  rewriteRedirects: false
+  backends:
+    - serviceRef: { name: searxng }   # a type=LoadBalancer Service
+      path: /                         # optional path prefix
+      # port: 80                      # optional; defaults to the Service's first port
 ```
 
-Per rule the operator builds a proxy target: **`Host` = the backend Service's
+Per backend the operator builds a proxy target: **`Host` = the backend Service's
 DNSRecord FQDN** (resolves, via the zone, to the LB IP routed through the
-`NetworkRouter` peers — dualstack-transparent), **`Path` = the rule path**,
-`Options.DirectUpstream: true`. The proxy never sees an IP or an address family.
+`NetworkRouter` peers — dualstack-transparent), **`Port`** = the backend port,
+**`Path`** = the backend path, `TargetId` = the cluster's **CNAME address** (not
+a proxy-node id), `Options.DirectUpstream: true`. The proxy never sees a raw IP
+or an address family.
 
 ## Layer 2 — translation
 
@@ -173,8 +177,17 @@ out of scope — the operator does no horizon logic.
 Unchanged: the mirror CRDs, the generic reconciler, the dualstack/adopt-or-create
 helpers, `Group`/`SetupKey`, `ClusterProxy`, the Pod sidecar webhook.
 
+## Implemented vs this document
+
+This document is the design; the build matches it, with these concrete shapes:
+`ReverseProxyService.spec.backends[]` (`serviceRef` / `port` / `path`) — there is
+no `routeRef`/`rules`; the cluster `TargetId` is the cluster's CNAME **address**;
+the `--advertise-loadbalancers` flag (chart value `advertiseLoadBalancers`) sets
+the operator default. The status helpers GET-verify a recorded NetBird id and
+recreate when it was deleted out of band.
+
 ## Open details
 
-- **Bare-L4 path.** A `TCPRoute` or a non-HTTP LoadBalancer Service is reachable
-  by its `DNSRecord` + `NetworkResource` directly (no reverse proxy); confirm
-  whether that needs any CRD beyond the reachability layer.
+- **Bare-L4 reachability.** A non-HTTP LoadBalancer Service is reachable by its
+  `DNSRecord` + `NetworkResource` directly (no reverse proxy); confirm whether
+  L4 exposure through the proxy needs anything beyond the reachability layer.

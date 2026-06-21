@@ -100,7 +100,10 @@ spec:
     - serviceRef: { name: app }      # a type=LoadBalancer Service
   proxyCluster: gate.example.com     # your NetBird reverse-proxy cluster
   domain: app.example.com
-  crowdsecMode: observe
+  crowdsecMode: observe              # off | observe | enforce
+  passHostHeader: true               # advanced toggles (optional)
+  # rewriteRedirects: true
+  # private: true                    # internal mesh-only instead of public
 ```
 
 A full walkthrough is in [`examples/expose`](examples/expose/README.md). See the
