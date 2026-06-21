@@ -10,7 +10,7 @@ GOBIN = $(shell go env GOBIN)
 endif
 
 IMG_REGISTRY ?= ghcr.io
-IMG_REPOSITORY ?= netbirdio/netbird-operator
+IMG_REPOSITORY ?= ccbash/netbird-operator
 IMG_TAG ?= dev
 IMG_REF := $(IMG_REGISTRY)/$(IMG_REPOSITORY):$(IMG_TAG)
 
