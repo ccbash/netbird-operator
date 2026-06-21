@@ -59,7 +59,7 @@ Create the API-key secret and install the operator:
 kubectl create namespace netbird
 kubectl -n netbird create secret generic netbird-mgmt-api-key --from-literal NB_API_KEY=${NETBIRD_API_KEY}
 helm upgrade --install --create-namespace -n netbird netbird-operator \
-  oci://ghcr.io/netbirdio/helm-charts/netbird-operator
+  oci://ghcr.io/ccbash/helm-charts/netbird-operator
 ```
 
 Define the network, its routing peers, and the DNS zone:

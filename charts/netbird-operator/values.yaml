@@ -43,7 +43,7 @@ operator:
     # Set operator image registry
     registry: ghcr.io
     # Set operator image repository
-    repository: netbirdio/netbird-operator
+    repository: ccbash/netbird-operator
     # This sets the pull policy for images.
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
