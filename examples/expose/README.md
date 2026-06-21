@@ -40,9 +40,12 @@ kubectl apply -f ./examples/expose/nginx.yaml
   Allocation is your LB's job; the operator owns the overlay and DNS.
 * Advertising is **default-on**; opt a namespace or Service out with the
   annotation `netbird.io/advertise: "false"`. Advertising makes the name
-  resolvable and the IP routable, but grants no access — NetBird policies still
-  gate that, and nothing is published through the proxy until you author a
-  `ReverseProxyService`.
+  resolvable and the IP routable, but grants no access by itself.
+* **For access, the resource needs a group and a policy.** Put advertised
+  resources in NetBird groups with the `netbird.io/groups` annotation (or the
+  operator's `--default-resource-groups`), then write a NetBird policy granting
+  the consuming peers access to that group. Nothing is published through the
+  proxy until you also author a `ReverseProxyService`.
 * `ReverseProxyService` targets each backend Service's **dualstack DNS name**
   (`<svc>-<ns>.<zone>`), so IPv4/IPv6 is transparent. `private: true` makes the
   exposure NetBird-only instead of public.
