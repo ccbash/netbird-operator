@@ -106,6 +106,8 @@ var _ = Describe("ClusterProxy Controller", func() {
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, childKey, dep)).To(Succeed())
 			Expect(dep.Spec.Template.Spec.ServiceAccountName).To(Equal("clusterproxy-sa"))
+			// replicas defaults to 3 (the CRD default) when unset.
+			Expect(dep.Spec.Replicas).To(HaveValue(Equal(int32(3))))
 			containers := dep.Spec.Template.Spec.Containers
 			Expect(containers).To(HaveLen(1))
 			Expect(containers[0].Image).To(Equal(version.KubeApiProxyImage))
@@ -123,6 +125,24 @@ var _ = Describe("ClusterProxy Controller", func() {
 			Expect(k8sClient.Get(ctx, nn, cp)).To(Succeed())
 			Expect(cp.Status.ObservedGeneration).To(Equal(cp.Generation))
 			Expect(meta.IsStatusConditionTrue(cp.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+		})
+
+		It("honors a custom replica count", func() {
+			cp := &nbv1alpha1.ClusterProxy{
+				ObjectMeta: metav1.ObjectMeta{Name: nn.Name, Namespace: nn.Namespace},
+				Spec: nbv1alpha1.ClusterProxySpec{
+					ClusterName:        clusterName,
+					APIServer:          apiServer,
+					ServiceAccountName: "clusterproxy-sa",
+					Replicas:           ptr.To(int32(1)),
+				},
+			}
+			Expect(k8sClient.Create(ctx, cp)).To(Succeed())
+			reconcile()
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, childKey, dep)).To(Succeed())
+			Expect(dep.Spec.Replicas).To(HaveValue(Equal(int32(1))))
 		})
 	})
 })
