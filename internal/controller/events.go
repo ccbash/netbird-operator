@@ -10,8 +10,6 @@ import (
 
 // Event reasons used in Kubernetes Events emitted by the controllers. They are
 // CamelCase per API convention and surface in `kubectl describe`.
-// Event reasons used in Kubernetes Events emitted by the controllers. They are
-// CamelCase per API convention and surface in `kubectl describe`.
 const (
 	reasonDependencyNotReady = "DependencyNotReady"
 	reasonInUse              = "InUse"
