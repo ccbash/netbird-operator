@@ -164,6 +164,51 @@ The operator only writes A/AAAA/CNAME records into the zone it is pointed at. Ho
 internal vs public names are arranged (split-horizon, internal-only domains) is
 out of scope — the operator does no horizon logic.
 
+## Cluster API proxy
+
+`ClusterProxy` is a standalone capability (independent of the LB-IP exposure
+model): it puts the Kubernetes API server itself on the NetBird mesh, so
+operators reach `kubectl` over the tunnel with their NetBird identity instead of
+a public ingress or a VPN.
+
+The controller (`clusterproxy_controller.go`) reconciles one `ClusterProxy`
+(`clusterName`, `apiServer`, `serviceAccountName`, `groups`) into:
+
+1. a **`SetupKey`** — ephemeral, `allowExtraDnsLabels: true`, `autoGroups` copied
+   from `spec.groups`;
+2. a **Secret** holding the operator's NetBird management **API key**;
+3. a 3-replica **Deployment** of `netbird-kubeapi-proxy` (image pinned in
+   `internal/version`), hostname-spread, running as `spec.serviceAccountName`.
+
+**How a client connects (the netbird-cli link).** Each proxy pod joins the mesh
+as a NetBird peer (`--setup-key` + `--management-url`) and — because the setup
+key allows extra DNS labels — registers **`<cluster-name>.netbird-kubeapi-proxy`**.
+A user on the same mesh (via the netbird CLI/daemon) points their kubeconfig
+`server:` at that mesh-only name; the replicas share the label, so NetBird load-
+balances across them. The proxy reads the caller's NetBird peer identity, uses
+the management **API key** to resolve that peer's NetBird groups, and
+**impersonates** a matching Kubernetes user/group — so the proxy itself holds
+only `impersonate` rights and the *effective* permissions come from whatever
+RBAC binds the impersonated group (e.g. a NetBird group `kubernetes-admin`
+mapped to `cluster-admin`).
+
+**Do not break (these are what the CLI link depends on):**
+
+- **`spec.clusterName`** derives the DNS label in every client kubeconfig — it is
+  immutable (CEL) for this reason. Renaming it orphans every client.
+- **`--management-url`** must point at the self-hosted NetBird, or the setup key
+  is rejected as invalid (this was the v0.6.0 regression that forced downstream
+  to hand-roll the proxy; fixed — the controller forwards it).
+- **`allowExtraDnsLabels: true`** on the setup key — without it the DNS label is
+  never registered. Immutable.
+- **the management API key** in the proxy Secret — required for peer→group
+  resolution; it is a powerful credential by design.
+- The impersonation RBAC (`serviceAccountName`'s `impersonate` ClusterRole, and
+  the group→ClusterRole bindings) is **operator-external** — the controller
+  references the ServiceAccount but does not create it or the RBAC.
+
+These surfaces are pinned by `clusterproxy_controller_test.go`.
+
 ## Dropped relative to v0.11.x
 
 - **The operator's own `Gateway` / `GatewayClass`** and the

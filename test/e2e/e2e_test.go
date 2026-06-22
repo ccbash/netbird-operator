@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,10 +17,7 @@ import (
 	"github.com/moby/moby/client"
 	"helm.sh/helm/v4/pkg/action"
 	"helm.sh/helm/v4/pkg/chart/loader"
-	"helm.sh/helm/v4/pkg/downloader"
-	"helm.sh/helm/v4/pkg/getter"
 	"helm.sh/helm/v4/pkg/kube"
-	"helm.sh/helm/v4/pkg/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -145,78 +141,81 @@ func TestE2E(t *testing.T) {
 			}
 			_, err = k8sClient.CoreV1().Secrets(netbirdNamespace).Create(t.Context(), secret, metav1.CreateOptions{})
 			require.NoError(t, err)
-			installOperator(t, kcPath, false)
-			installOperator(t, kcPath, true)
+			installOperator(t, kcPath, imgRef)
+
+			// The chart installs the operator's CRDs and the API server serves
+			// them (a failure here means the chart didn't ship a CRD or the
+			// operator couldn't register its controller for it).
+			rl, err := k8sClient.Discovery().ServerResourcesForGroupVersion("netbird.io/v1alpha1")
+			require.NoError(t, err)
+			served := map[string]bool{}
+			for _, r := range rl.APIResources {
+				served[r.Name] = true
+			}
+			for _, want := range []string{
+				"networks", "networkrouters", "networkresources",
+				"dnszones", "dnsrecords", "reverseproxyservices",
+				"groups", "setupkeys",
+			} {
+				require.True(t, served[want], "CRD %q should be installed by the chart", want)
+			}
 		})
 	}
 }
 
-func installOperator(t *testing.T, kcPath string, dev bool) {
+// installOperator installs the local (dev) chart with the freshly built image
+// loaded into Kind. (The upstream netbirdio chart is a different, divergent
+// operator with incompatible CRDs, so it's not part of this fork's e2e.)
+func installOperator(t *testing.T, kcPath, imgRef string) {
 	t.Helper()
 
-	regClient, err := registry.NewClient()
-	require.NoError(t, err)
-	actionCfg := &action.Configuration{
-		RegistryClient: regClient,
-	}
+	actionCfg := &action.Configuration{}
 	actionCfg.SetLogger(slog.DiscardHandler)
 	clientGetter := &genericclioptions.ConfigFlags{KubeConfig: &kcPath, Namespace: new(netbirdNamespace)}
-	err = actionCfg.Init(clientGetter, netbirdNamespace, "secret")
+	require.NoError(t, actionCfg.Init(clientGetter, netbirdNamespace, "secret"))
+
+	charter, err := loader.Load("../../charts/netbird-operator")
 	require.NoError(t, err)
 
-	chartPath, version := func() (string, string) {
-		if !dev {
-			tags, err := actionCfg.RegistryClient.Tags("ghcr.io/netbirdio/helm-charts/netbird-operator")
-			require.NoError(t, err)
-			buf := bytes.NewBuffer(nil)
-			dl := downloader.ChartDownloader{
-				Out:            buf,
-				Verify:         downloader.VerifyIfPossible,
-				ContentCache:   t.TempDir(),
-				Getters:        getter.Getters(getter.WithRegistryClient(actionCfg.RegistryClient)),
-				RegistryClient: actionCfg.RegistryClient,
-			}
-			chartPath, _, err := dl.DownloadTo("oci://ghcr.io/netbirdio/helm-charts/netbird-operator", tags[0], t.TempDir())
-			require.NoError(t, err, buf.String())
-			return chartPath, tags[0]
-		}
-		return "../../charts/netbird-operator", "dev"
-	}()
-	charter, err := loader.Load(chartPath)
-	require.NoError(t, err)
-
-	t.Log("Deploying NetBird Operator", version)
+	imgRegistry, repository, tag := splitImageRef(imgRef)
+	t.Log("Deploying NetBird Operator", imgRef)
 	vals := map[string]any{
 		"webhook": map[string]any{
 			"enableCertManager": false,
 			"failurePolicy":     "Ignore",
 		},
-	}
-	if dev {
-		vals["operator"] = map[string]any{
+		"operator": map[string]any{
 			"image": map[string]any{
-				"tag":        "dev",
+				"registry":   imgRegistry,
+				"repository": repository,
+				"tag":        tag,
 				"pullPolicy": "Never",
 			},
-		}
+		},
 	}
 
-	_, err = action.NewGet(actionCfg).Run("netbird-operator")
-	if err != nil {
-		install := action.NewInstall(actionCfg)
-		install.ReleaseName = "netbird-operator"
-		install.Namespace = netbirdNamespace
-		install.CreateNamespace = true
-		install.WaitStrategy = kube.StatusWatcherStrategy
-		install.Timeout = 60 * time.Second
-		_, err = install.RunWithContext(t.Context(), charter, vals)
-		require.NoError(t, err)
-	} else {
-		upgrade := action.NewUpgrade(actionCfg)
-		upgrade.Namespace = netbirdNamespace
-		upgrade.WaitStrategy = kube.StatusWatcherStrategy
-		upgrade.Timeout = 60 * time.Second
-		_, err := upgrade.RunWithContext(t.Context(), "netbird-operator", charter, vals)
-		require.NoError(t, err)
+	install := action.NewInstall(actionCfg)
+	install.ReleaseName = "netbird-operator"
+	install.Namespace = netbirdNamespace
+	install.CreateNamespace = true
+	install.WaitStrategy = kube.StatusWatcherStrategy
+	install.Timeout = 90 * time.Second
+	_, err = install.RunWithContext(t.Context(), charter, vals)
+	require.NoError(t, err)
+}
+
+// splitImageRef splits "registry/repository:tag" into its parts.
+func splitImageRef(ref string) (registry, repository, tag string) {
+	tag = "latest"
+	if i := strings.LastIndex(ref, ":"); i != -1 && !strings.Contains(ref[i:], "/") {
+		tag = ref[i+1:]
+		ref = ref[:i]
 	}
+	if i := strings.Index(ref, "/"); i != -1 {
+		registry = ref[:i]
+		repository = ref[i+1:]
+	} else {
+		repository = ref
+	}
+	return registry, repository, tag
 }

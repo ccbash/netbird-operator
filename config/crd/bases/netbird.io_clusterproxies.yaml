@@ -88,6 +88,15 @@ spec:
                   - message: Exactly one of id, name, or localRef must be set
                     rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
                 type: array
+              replicas:
+                default: 3
+                description: |-
+                  Replicas is the number of proxy Deployment replicas. Each replica is a
+                  separate peer sharing the <clusterName>.netbird-kubeapi-proxy DNS label,
+                  so more replicas means HA for kubectl-over-mesh. Defaults to 3.
+                format: int32
+                minimum: 1
+                type: integer
               serviceAccountName:
                 description: ServiceAccountName is a reference to the service account
                   used for impersonation.

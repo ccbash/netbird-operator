@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
@@ -52,11 +53,12 @@ func init() {
 func main() {
 	// NB Specific flags
 	var (
-		runtimeNamespace   string
-		managementURL      string
-		netbirdClientImage string
-		netbirdAPIKey      string
-		advertiseLBs       bool
+		runtimeNamespace      string
+		managementURL         string
+		netbirdClientImage    string
+		netbirdAPIKey         string
+		advertiseLBs          bool
+		defaultResourceGroups string
 	)
 	flag.StringVar(&runtimeNamespace, "runtime-namespace", "", "Namespace the controller is running in")
 	flag.StringVar(&managementURL, "netbird-management-url", "https://api.netbird.io", "Management service URL")
@@ -64,6 +66,8 @@ func main() {
 	flag.StringVar(&netbirdAPIKey, "netbird-api-key", "", "API key for NetBird API operations")
 	flag.BoolVar(&advertiseLBs, "advertise-loadbalancers", true,
 		"When true, Service type=LoadBalancer are advertised into NetBird by default (namespace/Service annotation netbird.io/advertise overrides).")
+	flag.StringVar(&defaultResourceGroups, "default-resource-groups", "",
+		"Comma-separated NetBird groups that advertised LoadBalancer resources join by default, so access policies can target them (netbird.io/groups annotation overrides).")
 
 	// Controller generic flags
 	var (
@@ -181,7 +185,7 @@ func main() {
 		}
 	}
 
-	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs); err != nil {
+	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs, defaultResourceGroups); err != nil {
 		setupLog.Error(err, "unable to set up controllers")
 		os.Exit(1)
 	}
@@ -217,7 +221,7 @@ func main() {
 
 // setupControllers registers the NetBird controllers that require API access.
 // It is a no-op (with a log line) when no API key is configured.
-func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs bool) error {
+func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs bool, defaultResourceGroups string) error {
 	if len(netbirdAPIKey) == 0 {
 		setupLog.Info("netbird API key not provided, ingress capabilities disabled")
 		return nil
@@ -280,6 +284,7 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	if err := (&controller.LoadBalancerReconciler{
 		Client:           mgr.GetClient(),
 		DefaultAdvertise: advertiseLBs,
+		DefaultGroups:    splitGroups(defaultResourceGroups),
 		Recorder:         mgr.GetEventRecorderFor("loadbalancer"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup LoadBalancer controller: %w", err)
@@ -288,6 +293,18 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		return fmt.Errorf("setup ReverseProxyService controller: %w", err)
 	}
 	return nil
+}
+
+// splitGroups parses a comma-separated group list, trimming spaces and dropping
+// empty entries.
+func splitGroups(s string) []string {
+	var out []string
+	for _, g := range strings.Split(s, ",") {
+		if g = strings.TrimSpace(g); g != "" {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 func getRuntimeNamespace(runtimeNamespace string) (string, error) {

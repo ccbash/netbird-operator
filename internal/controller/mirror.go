@@ -128,6 +128,23 @@ func (r *MirrorReconciler[T]) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// verifyNetbirdID returns id if get(id) still finds the NetBird object, "" if it
+// was deleted out of band (a plain GET returns a clean 404, which Update may
+// not), or an error otherwise. Callers recreate when it returns "".
+func verifyNetbirdID(id string, get func(string) error) (string, error) {
+	if id == "" {
+		return "", nil
+	}
+	switch err := get(id); {
+	case netbird.IsNotFound(err):
+		return "", nil
+	case err != nil:
+		return "", err
+	default:
+		return id, nil
+	}
+}
+
 // resolveNetworkID reads the NetBird network id from a referenced Network,
 // returning errDependencyNotReady while the Network is missing or not yet
 // reconciled.

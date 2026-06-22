@@ -68,13 +68,13 @@ func applyNetworkResource(ctx context.Context, nb *netbird.Client, c client.Clie
 	}
 
 	resources := nb.Networks.Resources(networkID)
-	// Verify the recorded resource still exists (clean 404 on GET => recreate).
-	if nr.Status.ResourceID != "" {
-		if _, err := resources.Get(ctx, nr.Status.ResourceID); netbird.IsNotFound(err) {
-			nr.Status.ResourceID = ""
-		} else if err != nil {
-			return err
-		}
+	// Recreate if the recorded resource was deleted out of band.
+	nr.Status.ResourceID, err = verifyNetbirdID(nr.Status.ResourceID, func(id string) error {
+		_, e := resources.Get(ctx, id)
+		return e
+	})
+	if err != nil {
+		return err
 	}
 	if nr.Status.ResourceID != "" {
 		resp, err := resources.Update(ctx, nr.Status.ResourceID, req)
