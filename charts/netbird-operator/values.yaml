@@ -162,6 +162,12 @@ netbirdAPI:
 # namespace/Service with the annotation netbird.io/advertise: "true"|"false".
 advertiseLoadBalancers: true
 
+# Comma-separated NetBird groups that advertised resources join by default, so
+# access policies can target them. Override per namespace/Service with the
+# annotation netbird.io/groups. Empty leaves resources group-less (not
+# policy-targetable).
+defaultResourceGroups: ""
+
 general:
   # General labels, applied to all created K8s resources
   labels: {}

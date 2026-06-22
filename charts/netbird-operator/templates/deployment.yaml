@@ -54,6 +54,9 @@ spec:
           {{- if not .Values.advertiseLoadBalancers }}
           - --advertise-loadbalancers=false
           {{- end }}
+          {{- if .Values.defaultResourceGroups }}
+          - --default-resource-groups={{ .Values.defaultResourceGroups }}
+          {{- end }}
           {{- if .Values.managementURL }}
           - --netbird-management-url={{.Values.managementURL}}
           {{- end }}

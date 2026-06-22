@@ -80,6 +80,7 @@ _Appears in:_
 | `apiServer` _string_ | APIServer is the URL of the Kubernetes API server to proxy requests to. | https://kubernetes.default.svc.cluster.local | Required: \{\} <br /> |
 | `serviceAccountName` _string_ | ServiceAccountName is a reference to the service account used for impersonation. |  | Required: \{\} <br /> |
 | `groups` _[GroupReference](#groupreference) array_ | Groups are references to groups that the peer will be a part of. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas is the number of proxy Deployment replicas. Each replica is a<br />separate peer sharing the <clusterName>.netbird-kubeapi-proxy DNS label,<br />so more replicas means HA for kubectl-over-mesh. Defaults to 3. | 3 | Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### ClusterProxyStatus

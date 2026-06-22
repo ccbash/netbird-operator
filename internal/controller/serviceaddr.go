@@ -28,40 +28,10 @@ func serviceFQDN(svcName, svcNamespace, zoneDomain string) string {
 	return svcName + "-" + svcNamespace + "." + zoneDomain
 }
 
-// familyAddress pairs a Service ClusterIP with its IP family.
+// familyAddress pairs an IP address with its family.
 type familyAddress struct {
 	family  corev1.IPFamily
 	address string
-}
-
-// familyAddresses returns the Service's ClusterIPs paired with their IP family,
-// filtered to want (all families when want is empty).
-func familyAddresses(svc *corev1.Service, want []corev1.IPFamily) []familyAddress {
-	wanted := map[corev1.IPFamily]bool{}
-	for _, f := range want {
-		wanted[f] = true
-	}
-	var out []familyAddress
-	for _, ip := range clusterIPsOf(svc) {
-		family := ipFamilyOf(ip)
-		if family == "" {
-			continue
-		}
-		if len(want) > 0 && !wanted[family] {
-			continue
-		}
-		out = append(out, familyAddress{family: family, address: ip})
-	}
-	return out
-}
-
-// addressList extracts the addresses from a slice of familyAddress.
-func addressList(fas []familyAddress) []string {
-	out := make([]string, 0, len(fas))
-	for _, fa := range fas {
-		out = append(out, fa.address)
-	}
-	return out
 }
 
 // ipFamilyOf classifies an IP string as IPv4 or IPv6, or "" when it is not a
@@ -88,15 +58,6 @@ func dnsRecordTypeFor(ip string) (api.DNSRecordType, bool) {
 		return api.DNSRecordTypeA, true
 	}
 	return api.DNSRecordTypeAAAA, true
-}
-
-// clusterIPsOf returns the Service's dualstack ClusterIPs, falling back to the
-// single ClusterIP for older API objects.
-func clusterIPsOf(svc *corev1.Service) []string {
-	if len(svc.Spec.ClusterIPs) > 0 {
-		return svc.Spec.ClusterIPs
-	}
-	return []string{svc.Spec.ClusterIP}
 }
 
 // recordMatchKey builds a comparison key for a DNS record that is stable across

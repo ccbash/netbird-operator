@@ -120,7 +120,7 @@ for management-side setup.
 | [Group](docs/api-reference.md#group) | A NetBird group |
 | [SetupKey](docs/api-reference.md#setupkey) | A NetBird setup key |
 | [SidecarProfile](docs/api-reference.md#sidecarprofile) | Sidecar peer injection profile |
-| [ClusterProxy](docs/api-reference.md#clusterproxy) | Cluster-API proxy |
+| [ClusterProxy](docs/api-reference.md#clusterproxy) | Put the Kubernetes API server on the mesh; `kubectl` over NetBird with group→RBAC impersonation ([flow](docs/architecture.md#cluster-api-proxy)) |
 
 Full field reference: [`docs/api-reference.md`](docs/api-reference.md).
 
@@ -139,3 +139,13 @@ Command-line flags (see `--help`); the most useful:
 
 With the Helm chart these are set through values (`operator.logging.*`,
 `managementURL`, …).
+
+## Observability
+
+- An advertised `Service` gets a Kubernetes **`Advertised` event** (`kubectl
+  describe svc`) carrying its NetBird FQDN; problems surface as `Warning` events.
+- The mirror CRDs carry a **`Ready` condition** — e.g. `kubectl get
+  reverseproxyservice,networkresource,dnsrecord -A`.
+- Set `--metrics-bind-address` (`:8080`/`:8443`) to expose the built-in
+  controller-runtime **metrics** — per-controller reconcile rate, error count
+  and latency.

@@ -25,6 +25,14 @@ type ClusterProxySpec struct {
 	// Groups are references to groups that the peer will be a part of.
 	// +optional
 	Groups []GroupReference `json:"groups,omitempty"`
+
+	// Replicas is the number of proxy Deployment replicas. Each replica is a
+	// separate peer sharing the <clusterName>.netbird-kubeapi-proxy DNS label,
+	// so more replicas means HA for kubectl-over-mesh. Defaults to 3.
+	// +optional
+	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
 }
 
 // ClusterProxyStatus defines the observed state of ClusterProxy.

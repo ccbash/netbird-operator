@@ -17,6 +17,10 @@ type ClusterProxySpecApplyConfiguration struct {
 	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
 	// Groups are references to groups that the peer will be a part of.
 	Groups []GroupReferenceApplyConfiguration `json:"groups,omitempty"`
+	// Replicas is the number of proxy Deployment replicas. Each replica is a
+	// separate peer sharing the <clusterName>.netbird-kubeapi-proxy DNS label,
+	// so more replicas means HA for kubectl-over-mesh. Defaults to 3.
+	Replicas *int32 `json:"replicas,omitempty"`
 }
 
 // ClusterProxySpecApplyConfiguration constructs a declarative configuration of the ClusterProxySpec type for use with
@@ -59,5 +63,13 @@ func (b *ClusterProxySpecApplyConfiguration) WithGroups(values ...*GroupReferenc
 		}
 		b.Groups = append(b.Groups, *values[i])
 	}
+	return b
+}
+
+// WithReplicas sets the Replicas field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Replicas field is set to the value of the last call.
+func (b *ClusterProxySpecApplyConfiguration) WithReplicas(value int32) *ClusterProxySpecApplyConfiguration {
+	b.Replicas = &value
 	return b
 }
