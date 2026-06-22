@@ -11,7 +11,7 @@ require (
 	github.com/netbirdio/netbird v0.72.4
 	github.com/onsi/ginkgo/v2 v2.31.0
 	github.com/onsi/gomega v1.42.0
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	golang.org/x/mod v0.37.0
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
