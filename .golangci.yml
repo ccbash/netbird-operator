@@ -90,10 +90,16 @@ linters:
       - linters:
           - dupl
         path: internal/*
-    paths:
+    paths: &generated-paths
       - third_party$
       - builtin$
       - examples$
+      # Generated code (controller-gen output) emits its own import aliases and
+      # headers that intentionally don't match importas/goheader/gci, so it must
+      # be excluded. The content-based `generated: lax` mode above isn't honored
+      # by every golangci-lint version/run context, so exclude by path too.
+      - pkg/applyconfigurations
+      - zz_generated\.deepcopy\.go
 formatters:
   enable:
     - gci
@@ -110,4 +116,7 @@ formatters:
       no-inline-comments: true
       no-prefix-comments: true
       custom-order: true
+  exclusions:
+    generated: lax
+    paths: *generated-paths
 
