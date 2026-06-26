@@ -216,6 +216,12 @@ These surfaces are pinned by `clusterproxy_controller_test.go`.
   `gateway.netbird.io/Network` listener trick. The operator consumes *existing*
   LoadBalancer Services (Gateway-provisioned or bare); the opt-in is authoring a
   `ReverseProxyService` (and `Network` + `NetworkRouter`).
+  - *Re-introduced differently in v0.12 (opt-in, `--enable-gateway-api`):* the
+    operator does not run a Gateway, but it can act as a **GatewayClass
+    controller** (`netbird.io/byop-proxy`) that deploys a NetBird
+    bring-your-own reverse proxy (`ReverseProxyCluster`) and **translates
+    `HTTPRoute`s into `ReverseProxyService`s**. The proxy — not the operator — is
+    the data plane. See [`design/byop-gateway.md`](design/byop-gateway.md).
 - **ClusterIP exposure** — per-backend ClusterIP `NetworkResource`s and the
   `<svc>-<ns>` records pointing at ClusterIPs. Replaced by LB-IP records.
 - **The Gateway-owned DNSZone** — DNS is admin-managed.

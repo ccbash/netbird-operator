@@ -11,12 +11,15 @@ import (
 // ReverseProxyBackendApplyConfiguration represents a declarative configuration of the ReverseProxyBackend type for use
 // with apply.
 //
-// ReverseProxyBackend names a LoadBalancer Service this service proxies to. The
-// Service must be advertised (have a DNSRecord); the proxy targets its dualstack
-// FQDN, so IPv4/IPv6 is transparent.
+// ReverseProxyBackend names a Service this service proxies to. How the proxy
+// reaches it depends on the Service type: a type=LoadBalancer Service must be
+// advertised (have a DNSRecord) and is targeted by its dualstack mesh FQDN (so
+// IPv4/IPv6 is transparent, over the NetBird overlay); any other Service
+// (ClusterIP) is reached directly at its in-cluster DNS name — the drop-in path
+// for an in-cluster proxy.
 type ReverseProxyBackendApplyConfiguration struct {
-	// ServiceRef names the LoadBalancer Service to proxy to, in the same
-	// namespace as the ReverseProxyService.
+	// ServiceRef names the Service to proxy to, in the same namespace as the
+	// ReverseProxyService.
 	ServiceRef *v1.LocalObjectReference `json:"serviceRef,omitempty"`
 	// Port the proxy dials on the backend. Defaults to the Service's first port.
 	Port *int `json:"port,omitempty"`
