@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Feature Requests
-    about: Propose and discuss new features.
-    url: https://github.com/netbirdio/kubernetes-operator/discussions/new?category=feature-requests
+  - name: Question or idea
+    about: Ask a question or discuss an idea.
+    url: https://github.com/ccbash/kubernetes-operator/discussions
+  - name: Security vulnerability
+    about: Report a vulnerability privately — do not open a public issue.
+    url: https://github.com/ccbash/kubernetes-operator/security/advisories/new
