@@ -1,8 +1,25 @@
+# A NetBird network and its routing peers. The routing peers advertise the
+# network's resources (networkresource.yaml) into the mesh. This example reuses
+# an existing NetBird group as the routing peers (the operator deploys nothing) —
+# point it at the group your nodes' netbird joins. Switch to `peers.deploy: {}`
+# to have the operator run a hostNetwork netbird-client DaemonSet instead.
+apiVersion: netbird.io/v1alpha1
+kind: Network
+metadata:
+  name: prod
+  namespace: netbird
+spec:
+  name: prod
+---
 apiVersion: netbird.io/v1alpha1
 kind: NetworkRouter
 metadata:
   name: prod
   namespace: netbird
 spec:
-  dnsZoneRef:
-    name: prod.company.internal
+  networkRef: { name: prod, namespace: netbird }
+  peers:
+    group: { name: prod-nodes }
+  masquerade: true
+  # metric: 9999     # lowest wins (default 9999)
+  # enabled: true

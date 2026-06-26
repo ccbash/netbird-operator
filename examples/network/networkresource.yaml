@@ -1,57 +1,18 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx
-  namespace: default
-  labels:
-    app: nginx
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: nginx
-  strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - image: nginx
-        imagePullPolicy: Always
-        name: nginx
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nginx
-  namespace: default
-  labels:
-    app: nginx
-spec:
-  type: ClusterIP
-  ports:
-  - name: http
-    port: 80
-    protocol: TCP
-    targetPort: 80
-  selector:
-    app: nginx
----
+# A NetworkResource routes a single address — an IP, CIDR, or domain — into the
+# network, reachable by NetBird peers that have access to its groups. Unlike a
+# LoadBalancer Service (see ../expose, which the operator advertises for you),
+# this is hand-authored for an arbitrary address the operator doesn't manage —
+# e.g. an on-prem host, a database, or a CIDR block behind the routing peers.
 apiVersion: netbird.io/v1alpha1
 kind: NetworkResource
 metadata:
-  name: nginx
-  namespace: default
+  name: db
+  namespace: netbird
 spec:
-  networkRouterRef:
-    name: prod
-    namespace: netbird
-  serviceRef:
-    name: nginx
+  networkRef: { name: prod, namespace: netbird }
+  name: db
+  address: 10.0.0.10          # an IP, CIDR (10.0.0.0/24), or domain (db.internal)
   groups:
-    - name: All
+    - name: All               # who the resource is grouped under (for access policies)
+  # description: "prod database"
+  # enabled: true
