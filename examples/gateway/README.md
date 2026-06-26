@@ -35,6 +35,38 @@ kubectl apply -f ./examples/gateway/gateway.yaml
    peers hit the Gateway's advertised name on `:80`/`:443`; the Gateway does the
    rest. The operator never looks at the routes.
 
+## Stable DNS for the route hostnames
+
+The operator auto-advertises the gateway's data-plane Service as
+`<generated-service>-edge.<zone>` — an implementation-specific name, **not** the
+hostnames your `HTTPRoute`s match (`app.kube.example.com`). To make the route
+hostnames resolve over the mesh to the gateway, add records in the NetBird zone,
+two ways:
+
+- **Explicit — a `DNSRecord` CR.** Point the route hostname at the gateway's
+  advertised name (or its LB IP):
+
+  ```yaml
+  apiVersion: netbird.io/v1alpha1
+  kind: DNSRecord
+  metadata: { name: app, namespace: edge }
+  spec:
+    zoneRef: { name: kube, namespace: netbird }
+    name: app.kube.example.com                           # the HTTPRoute hostname
+    type: CNAME
+    content: <generated-service>-edge.kube.example.com   # the gateway's advertised name
+  ```
+
+- **Implicit — external-dns.** Run [external-dns](https://kubernetes-sigs.github.io/external-dns/)
+  with the [external-dns-netbird-webhook](https://codeberg.org/ccbash-oss/external-dns-netbird-webhook);
+  it reads `Gateway`/`HTTPRoute` hostnames and publishes them into the NetBird
+  zone for you — no per-route `DNSRecord`.
+
+> A NetBird zone must have a single owner. If external-dns manages a zone the
+> operator also writes to (its LoadBalancer auto-records), run external-dns
+> `policy: upsert-only` or give it its own zone, or the two fight and records
+> flap.
+
 ## Notes
 
 - **Controlling advertising:** annotate the gateway's namespace (shown here) or

@@ -28,9 +28,12 @@ kubectl apply -f ./examples/expose/network.yaml
 ```
 
 Deploy Nginx as a `Service type=LoadBalancer` and publish it. Your cluster's LB
-IPAM (Cilium LB-IPAM, MetalLB, …) allocates the ingress IP; the operator
-advertises it automatically (a `NetworkResource` + a dualstack `DNSRecord` per
-IP family). The `ReverseProxyService` then publishes it through the proxy.
+implementation allocates the ingress IP — a cloud LoadBalancer on managed
+clusters, or on-prem [MetalLB](https://metallb.io/),
+[Cilium LB-IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/), or
+[kube-vip](https://kube-vip.io/). The operator then advertises that IP
+automatically (a `NetworkResource` + a dualstack `DNSRecord` per IP family), and
+the `ReverseProxyService` publishes it through the proxy.
 
 ```shell
 kubectl apply -f ./examples/expose/nginx.yaml

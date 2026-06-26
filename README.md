@@ -35,7 +35,11 @@ ClusterIPs come from a huge, unpredictably-allocated service CIDR that is
 identical on every default cluster, so routing them across your infrastructure
 invites collisions; an LB CIDR is small, deliberately chosen and collision-free.
 The operator owns only the NetBird overlay and DNS — your existing LB/IPAM
-allocates the addresses.
+allocates the addresses. Managed clusters get a cloud LoadBalancer for free;
+on-prem you supply one, e.g. [MetalLB](https://metallb.io/),
+[Cilium LB-IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/), or
+[kube-vip](https://kube-vip.io/). Without a LoadBalancer implementation a
+`type: LoadBalancer` Service stays `<pending>` and nothing is advertised.
 
 ## How it works
 
