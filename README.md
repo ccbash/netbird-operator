@@ -107,6 +107,18 @@ A full walkthrough is in [`examples/expose`](examples/expose/README.md). See the
 [NetBird Kubernetes docs](https://docs.netbird.io/manage/integrations/kubernetes)
 for management-side setup.
 
+## HowTos
+
+Worked examples under [`examples/`](examples/), each with its own README:
+
+| Example | What it shows |
+|---------|---------------|
+| [expose](examples/expose/README.md) | Advertise a `Service type=LoadBalancer` over the mesh and publish it through the NetBird reverse proxy (the end-to-end walkthrough). |
+| [mail](examples/mail/README.md) | Expose a mail server on many TCP ports (SMTP/IMAP/ManageSieve) under one hostname — L4 per-port services with PROXY protocol. |
+| [cluster-proxy](examples/cluster-proxy/cluster-proxy.yaml) | Put the Kubernetes API server on the mesh and reach it with `kubectl` over NetBird. |
+| [network](examples/network/) | Standalone `NetworkResource` / `NetworkRouter` manifests. |
+| [sidecar](examples/sidecar/) | Inject a NetBird sidecar peer into Pods via a `SidecarProfile`. |
+
 ## API
 
 | Kind | Purpose |
