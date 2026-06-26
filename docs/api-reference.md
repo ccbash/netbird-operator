@@ -16,6 +16,7 @@ Package v1alpha1 contains API Schema definitions for the  v1alpha1 API group.
 - [Network](#network)
 - [NetworkResource](#networkresource)
 - [NetworkRouter](#networkrouter)
+- [ReverseProxyCluster](#reverseproxycluster)
 - [ReverseProxyService](#reverseproxyservice)
 - [SetupKey](#setupkey)
 - [SidecarProfile](#sidecarprofile)
@@ -133,6 +134,7 @@ _Appears in:_
 - [DNSRecordSpec](#dnsrecordspec)
 - [NetworkResourceSpec](#networkresourcespec)
 - [NetworkRouterSpec](#networkrouterspec)
+- [ReverseProxyClusterSpec](#reverseproxyclusterspec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -321,6 +323,7 @@ _Appears in:_
 - [DNSZoneSpec](#dnszonespec)
 - [NetworkResourceSpec](#networkresourcespec)
 - [NetworkRouterPeers](#networkrouterpeers)
+- [ReverseProxyClusterSpec](#reverseproxyclusterspec)
 - [ReverseProxyServiceSpec](#reverseproxyservicespec)
 - [SetupKeySpec](#setupkeyspec)
 
@@ -606,6 +609,76 @@ _Appears in:_
 | `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef names the LoadBalancer Service to proxy to, in the same<br />namespace as the ReverseProxyService. |  |  |
 | `port` _integer_ | Port the proxy dials on the backend. Defaults to the Service's first port. |  | Optional: \{\} <br /> |
 | `path` _string_ | Path is the URL path prefix this backend serves (HTTP). Defaults to "/". |  | Optional: \{\} <br /> |
+
+
+#### ReverseProxyCluster
+
+
+
+ReverseProxyCluster deploys and enrolls a NetBird bring-your-own reverse proxy
+and registers it as the account's own proxy cluster.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `netbird.io/v1alpha1` | | |
+| `kind` _string_ | `ReverseProxyCluster` | | |
+| `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  | Optional: \{\} <br /> |
+| `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ReverseProxyClusterSpec](#reverseproxyclusterspec)_ |  |  | Required: \{\} <br /> |
+| `status` _[ReverseProxyClusterStatus](#reverseproxyclusterstatus)_ |  | \{ observedGeneration:-1 \} |  |
+
+
+#### ReverseProxyClusterSpec
+
+
+
+ReverseProxyClusterSpec defines the desired state of ReverseProxyCluster. It
+is admin-authored: creating one deploys and enrolls a NetBird bring-your-own
+reverse proxy (the netbirdio/reverse-proxy image) and registers it as the
+account's own proxy cluster. The proxy runs behind a Service type=LoadBalancer
+(its ingress IP comes from the cluster's LB-IPAM) and is reached over the
+mesh; ReverseProxyService.proxyCluster targets its ClusterAddress.
+
+
+
+_Appears in:_
+- [ReverseProxyCluster](#reverseproxycluster)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `clusterAddress` _string_ | ClusterAddress is the address the proxy registers under (the proxy's<br />NB_PROXY_DOMAIN), e.g. "gate.ccbash.cloud". ReverseProxyService.proxyCluster<br />references it. It must sit under Domain so service domains derive this<br />cluster. |  | MinLength: 1 <br /> |
+| `domain` _string_ | Domain is the DNS zone the proxy fronts, e.g. "ccbash.cloud". The operator<br />ensures a DNSZone for it (unless ZoneRef is set) and creates the proxy's A<br />record (ClusterAddress -> the LoadBalancer IP) plus a catch-all<br />(*.Domain -> ClusterAddress) so any service hostname resolves to the proxy. |  | MinLength: 1 <br /> |
+| `zoneRef` _[CrossNamespaceReference](#crossnamespacereference)_ | ZoneRef references an existing DNSZone for Domain instead of creating one. |  | Optional: \{\} <br /> |
+| `certSecretName` _string_ | CertSecretName is a kubernetes.io/tls Secret (tls.crt/tls.key) in the same<br />namespace — typically a cert-manager wildcard for Domain — mounted into the<br />proxy as its static TLS certificate. The proxy does no ACME. |  | Optional: \{\} <br /> |
+| `groups` _[GroupReference](#groupreference) array_ | Groups are NetBird groups the proxy's advertised LoadBalancer resource<br />joins, so access policies can target it. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas of the proxy Deployment. Defaults to 1. | 1 | Minimum: 1 <br />Optional: \{\} <br /> |
+| `image` _string_ | Image overrides the netbird reverse-proxy image. Defaults to the operator's<br />pinned image. |  | Optional: \{\} <br /> |
+| `serviceAnnotations` _object (keys:string, values:string)_ | ServiceAnnotations are added to the proxy's LoadBalancer Service, e.g. to<br />pin an LB-IPAM pool or request a specific IP. |  | Optional: \{\} <br /> |
+
+
+#### ReverseProxyClusterStatus
+
+
+
+ReverseProxyClusterStatus defines the observed state of ReverseProxyCluster.
+
+
+
+_Appears in:_
+- [ReverseProxyCluster](#reverseproxycluster)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the ReverseProxyCluster. |  | Optional: \{\} <br /> |
+| `clusterAddress` _string_ | ClusterAddress echoes the registered cluster address once the proxy has<br />enrolled (resolvable via the Management API). |  | Optional: \{\} <br /> |
+| `tokenID` _string_ | TokenID is the id of the minted proxy token (revoked when the cluster is<br />deleted). |  | Optional: \{\} <br /> |
+| `loadBalancerIP` _string_ | LoadBalancerIP is the proxy Service's assigned ingress IP — what the A<br />record points at. |  | Optional: \{\} <br /> |
 
 
 #### ReverseProxyMode
