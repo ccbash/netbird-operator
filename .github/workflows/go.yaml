@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'release/**'
 permissions:
   contents: read
 jobs:
@@ -44,6 +45,10 @@ jobs:
           flags: unit
   e2e:
     runs-on: ubuntu-latest
+    # Heavy (builds an image, needs Docker). Run on PRs and main pushes; skip on
+    # direct release-branch pushes — lint+test still run there, and PRs into a
+    # release branch exercise e2e.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 #v7.0.0
