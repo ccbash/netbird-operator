@@ -1,7 +1,13 @@
 # Exposing a Gateway API Gateway over NetBird
 
-**The operator has no Gateway API integration — and doesn't need one.** A
-Gateway's data plane is a `Service type=LoadBalancer` that your gateway
+This example covers the **default** mode: the operator has no Gateway API
+integration and treats a third-party gateway as just another LoadBalancer
+Service. A second, **opt-in** mode (the operator *is* the gateway, backed by a
+NetBird BYOP proxy) is summarised at the end.
+
+## Default: gateway as a LoadBalancer Service
+
+A Gateway's data plane is a `Service type=LoadBalancer` that your gateway
 controller (kgateway, Cilium, Istio, …) provisions. The operator advertises that
 Service exactly like any other LoadBalancer Service. **HTTPRoutes** do all the
 L7 host/path routing behind that single advertised frontend — that stays the
@@ -78,3 +84,22 @@ two ways:
 - This is L7 only. For raw TCP (mail, databases) use an L4
   `ReverseProxyService` ([`../mail`](../mail/README.md)) — Gateway API L4
   (`TCPRoute`) is likewise just a LoadBalancer Service the operator advertises.
+
+## Opt-in: the operator as the gateway (NetBird BYOP proxy)
+
+Run the operator with `--enable-gateway-api` and it becomes a **GatewayClass
+controller** (`controllerName: netbird.io/byop-proxy`). Instead of standing aside,
+it:
+
+1. Deploys + enrols a NetBird **bring-your-own reverse proxy** via a
+   `ReverseProxyCluster` (its own Deployment + `Service type=LoadBalancer` + token
+   + DNS; cert-manager supplies the TLS cert).
+2. **Translates every `HTTPRoute`** attached to a `Gateway` of that class into a
+   `ReverseProxyService` (one per hostname; `backendRefs` → backends, reached
+   directly at their in-cluster ClusterIP).
+
+This replaces an in-cluster gateway like kgateway with a mesh-native proxy while
+keeping your `Gateway`/`HTTPRoute` manifests. Point the `GatewayClass`'s
+`parametersRef` at the `ReverseProxyCluster`. Design + phasing:
+[`../../docs/design/byop-gateway.md`](../../docs/design/byop-gateway.md). The
+Gateway API CRDs are a cluster prerequisite (not shipped in the chart).
