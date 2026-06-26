@@ -7,8 +7,8 @@ toolchain go1.26.3
 require (
 	github.com/fluxcd/pkg/runtime v0.110.0
 	github.com/go-logr/logr v1.4.3
+	github.com/netbirdio/netbird v0.73.2
 	github.com/go-openapi/testify/v2 v2.6.0
-	github.com/netbirdio/netbird v0.73.1
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
 	go.uber.org/zap v1.28.0
