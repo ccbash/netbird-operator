@@ -61,6 +61,8 @@ func main() {
 		netbirdAPIKey         string
 		advertiseLBs          bool
 		defaultResourceGroups string
+		lbNetwork             string
+		lbDNSZone             string
 	)
 	flag.StringVar(&runtimeNamespace, "runtime-namespace", "", "Namespace the controller is running in")
 	flag.StringVar(&managementURL, "netbird-management-url", "https://api.netbird.io", "Management service URL")
@@ -70,6 +72,10 @@ func main() {
 		"When true, Service type=LoadBalancer are advertised into NetBird by default (namespace/Service annotation netbird.io/advertise overrides).")
 	flag.StringVar(&defaultResourceGroups, "default-resource-groups", "",
 		"Comma-separated NetBird groups that advertised LoadBalancer resources join by default, so access policies can target them (netbird.io/groups annotation overrides).")
+	flag.StringVar(&lbNetwork, "loadbalancer-network", "",
+		"Name of the NetBird Network that advertised LoadBalancer Services attach their NetworkResource to.")
+	flag.StringVar(&lbDNSZone, "loadbalancer-dns-zone", "",
+		"Name of the DNSZone that advertised LoadBalancer Services get their <svc>-<ns>.<zone> DNSRecord in.")
 
 	// Controller generic flags
 	var (
@@ -190,7 +196,7 @@ func main() {
 		}
 	}
 
-	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs, enableGatewayAPI, defaultResourceGroups); err != nil {
+	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs, enableGatewayAPI, defaultResourceGroups, lbNetwork, lbDNSZone); err != nil {
 		setupLog.Error(err, "unable to set up controllers")
 		os.Exit(1)
 	}
@@ -226,7 +232,7 @@ func main() {
 
 // setupControllers registers the NetBird controllers that require API access.
 // It is a no-op (with a log line) when no API key is configured.
-func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs, enableGatewayAPI bool, defaultResourceGroups string) error {
+func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs, enableGatewayAPI bool, defaultResourceGroups, lbNetwork, lbDNSZone string) error {
 	if len(netbirdAPIKey) == 0 {
 		setupLog.Info("netbird API key not provided, ingress capabilities disabled")
 		return nil
@@ -289,6 +295,8 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	if err := (&controller.LoadBalancerReconciler{
 		Client:           mgr.GetClient(),
 		DefaultAdvertise: advertiseLBs,
+		Network:          lbNetwork,
+		DNSZone:          lbDNSZone,
 		DefaultGroups:    splitGroups(defaultResourceGroups),
 		Recorder:         mgr.GetEventRecorderFor("loadbalancer"),
 	}).SetupWithManager(mgr); err != nil {

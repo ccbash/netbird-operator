@@ -57,6 +57,12 @@ spec:
           {{- if .Values.defaultResourceGroups }}
           - --default-resource-groups={{ .Values.defaultResourceGroups }}
           {{- end }}
+          {{- if .Values.loadBalancer.network }}
+          - --loadbalancer-network={{ .Values.loadBalancer.network }}
+          {{- end }}
+          {{- if .Values.loadBalancer.dnsZone }}
+          - --loadbalancer-dns-zone={{ .Values.loadBalancer.dnsZone }}
+          {{- end }}
           {{- if .Values.enableGatewayAPI }}
           - --enable-gateway-api
           {{- end }}
