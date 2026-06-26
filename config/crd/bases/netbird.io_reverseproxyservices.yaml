@@ -18,6 +18,10 @@ spec:
     - jsonPath: .spec.domain
       name: Domain
       type: string
+    - jsonPath: .status.serviceDomain
+      name: Service Domain
+      priority: 1
+      type: string
     - jsonPath: .spec.private
       name: Private
       type: boolean
@@ -192,13 +196,23 @@ spec:
                 - enforce
                 type: string
               domain:
-                description: Domain is the hostname the service is published under.
+                description: |-
+                  Domain is the public hostname clients connect to. For mode=http/tls it is
+                  the service domain verbatim (HTTP routing / TLS SNI). For mode=tcp/udp it
+                  is the shared host: NetBird allows only one service per domain, and L4
+                  connections route by listen port (no SNI), so the operator publishes each
+                  port as a distinct per-port subdomain (<mode>-<listenPort>.<Domain>, shown
+                  in status.serviceDomain) under this host. Expose several L4 ports under one
+                  hostname with one CR per port, all sharing this Domain. The host must
+                  resolve to a proxy cluster (be the cluster address, its subdomain, or a
+                  registered NetBird custom domain) and have public DNS pointing at it.
                 minLength: 1
                 type: string
               listenPort:
                 description: |-
-                  ListenPort is the port the proxy listens on (L4 modes only — tcp/tls/udp).
-                  0 (or unset) lets NetBird auto-assign. Ignored for mode=http.
+                  ListenPort is the public port the proxy listens on. Required for L4 modes
+                  (tcp/tls/udp) — it both fixes the well-known port (e.g. 25/465/993 for
+                  mail) and disambiguates the per-port service domain. Ignored for mode=http.
                 maximum: 65535
                 minimum: 0
                 type: integer
@@ -262,6 +276,9 @@ spec:
                 == ''http'''
             - message: listenPort only applies to L4 modes (tcp/tls/udp)
               rule: '!has(self.listenPort) || (has(self.mode) && self.mode != ''http'')'
+            - message: tcp/tls/udp modes require a non-zero listenPort
+              rule: '!has(self.mode) || self.mode == ''http'' || (has(self.listenPort)
+                && self.listenPort > 0)'
             - message: proxyProtocol (PROXY protocol v2) only applies to tcp/tls modes
               rule: '!has(self.proxyProtocol) || !self.proxyProtocol || (has(self.mode)
                 && (self.mode == ''tcp'' || self.mode == ''tls''))'
@@ -334,6 +351,12 @@ spec:
                 description: ObservedGeneration is the last reconciled generation.
                 format: int64
                 type: integer
+              serviceDomain:
+                description: |-
+                  ServiceDomain is the domain actually registered with NetBird. It equals
+                  spec.domain for http/tls, and the synthesized per-port subdomain
+                  (<mode>-<listenPort>.<spec.domain>) for tcp/udp.
+                type: string
               serviceID:
                 description: ServiceID is the id of the created NetBird reverse-proxy
                   service.

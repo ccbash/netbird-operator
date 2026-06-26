@@ -56,6 +56,14 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	// rejects it elsewhere, so this gate only ever skips it for http/udp.
 	proxyProtocol := mode == api.ServiceRequestModeTcp || mode == api.ServiceRequestModeTls
 
+	// NetBird allows only one service per domain. tcp/udp connections route by
+	// listen port (no SNI), so to publish several ports under one hostname the
+	// operator registers each port under a distinct per-port subdomain of the
+	// shared public host. http (Host routing) and tls (SNI) must keep the domain
+	// verbatim. The synthesized subdomain still derives the same proxy cluster
+	// (suffix match) and needs no public DNS — clients reach the shared host.
+	serviceDomain := serviceDomain(mode, rps.Spec.Domain, rps.Spec.ListenPort)
+
 	targets := make([]api.ServiceTarget, 0, len(rps.Spec.Backends))
 	for _, b := range rps.Spec.Backends {
 		fqdn, err := backendFQDN(ctx, c, rps.Namespace, b.ServiceRef.Name)
@@ -96,7 +104,7 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	sortServiceTargets(targets)
 
 	req := api.ServiceRequest{
-		Domain:           rps.Spec.Domain,
+		Domain:           serviceDomain,
 		Enabled:          true,
 		Mode:             &mode,
 		Name:             rps.Name,
@@ -125,6 +133,9 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	if ar := accessRestrictionsFor(rps.Spec.CrowdsecMode, rps.Spec.AccessRestrictions); ar != nil {
 		req.AccessRestrictions = ar
 	}
+
+	// Surface the registered domain so the per-port synthesis is transparent.
+	rps.Status.ServiceDomain = serviceDomain
 
 	if rps.Status.ServiceID != "" {
 		resp, err := nb.ReverseProxyServices.Update(ctx, rps.Status.ServiceID, req)
@@ -203,6 +214,19 @@ func sortServiceTargets(targets []api.ServiceTarget) {
 		}
 		return targets[i].Port < targets[j].Port
 	})
+}
+
+// serviceDomain returns the domain to register with NetBird. http (Host
+// routing) and tls (SNI) keep the public host verbatim. tcp/udp route by listen
+// port and NetBird permits only one service per domain, so each port is
+// published under a distinct subdomain "<mode>-<listenPort>.<host>" — unique
+// across mode+port, and still a subdomain of host so it derives the same proxy
+// cluster (suffix match) without needing its own public DNS.
+func serviceDomain(mode api.ServiceRequestMode, host string, listenPort *int) string {
+	if (mode == api.ServiceRequestModeTcp || mode == api.ServiceRequestModeUdp) && listenPort != nil {
+		return fmt.Sprintf("%s-%d.%s", mode, *listenPort, host)
+	}
+	return host
 }
 
 // serviceMode maps the CRD's mode onto the NetBird API request mode and the

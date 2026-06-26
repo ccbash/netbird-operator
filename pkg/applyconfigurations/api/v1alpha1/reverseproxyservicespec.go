@@ -23,8 +23,9 @@ type ReverseProxyServiceSpecApplyConfiguration struct {
 	// "tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports
 	// under one hostname with one CR per port (same Domain, distinct ListenPort).
 	Mode *apiv1alpha1.ReverseProxyMode `json:"mode,omitempty"`
-	// ListenPort is the port the proxy listens on (L4 modes only — tcp/tls/udp).
-	// 0 (or unset) lets NetBird auto-assign. Ignored for mode=http.
+	// ListenPort is the public port the proxy listens on. Required for L4 modes
+	// (tcp/tls/udp) — it both fixes the well-known port (e.g. 25/465/993 for
+	// mail) and disambiguates the per-port service domain. Ignored for mode=http.
 	ListenPort *int `json:"listenPort,omitempty"`
 	// ProxyProtocol, when true, makes the proxy prepend a PROXY protocol v2
 	// header to each backend connection so the backend sees the real client IP
@@ -38,7 +39,15 @@ type ReverseProxyServiceSpecApplyConfiguration struct {
 	// serves this service, e.g. "gate.example.com". The operator resolves it to
 	// a proxy-cluster ID and points the service's targets at it.
 	ProxyCluster *string `json:"proxyCluster,omitempty"`
-	// Domain is the hostname the service is published under.
+	// Domain is the public hostname clients connect to. For mode=http/tls it is
+	// the service domain verbatim (HTTP routing / TLS SNI). For mode=tcp/udp it
+	// is the shared host: NetBird allows only one service per domain, and L4
+	// connections route by listen port (no SNI), so the operator publishes each
+	// port as a distinct per-port subdomain (<mode>-<listenPort>.<Domain>, shown
+	// in status.serviceDomain) under this host. Expose several L4 ports under one
+	// hostname with one CR per port, all sharing this Domain. The host must
+	// resolve to a proxy cluster (be the cluster address, its subdomain, or a
+	// registered NetBird custom domain) and have public DNS pointing at it.
 	Domain *string `json:"domain,omitempty"`
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is

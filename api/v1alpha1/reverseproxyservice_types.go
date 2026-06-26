@@ -92,6 +92,7 @@ type ReverseProxyBackend struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || !has(self.mode) || self.mode == 'http'",message="private requires mode http (the NetBird API only supports the auto-ACL on HTTP services)"
 // +kubebuilder:validation:XValidation:rule="!has(self.listenPort) || (has(self.mode) && self.mode != 'http')",message="listenPort only applies to L4 modes (tcp/tls/udp)"
+// +kubebuilder:validation:XValidation:rule="!has(self.mode) || self.mode == 'http' || (has(self.listenPort) && self.listenPort > 0)",message="tcp/tls/udp modes require a non-zero listenPort"
 // +kubebuilder:validation:XValidation:rule="!has(self.proxyProtocol) || !self.proxyProtocol || (has(self.mode) && (self.mode == 'tcp' || self.mode == 'tls'))",message="proxyProtocol (PROXY protocol v2) only applies to tcp/tls modes"
 type ReverseProxyServiceSpec struct {
 	// Backends are the LoadBalancer Services this service proxies to, by path.
@@ -106,8 +107,9 @@ type ReverseProxyServiceSpec struct {
 	// +kubebuilder:default=http
 	Mode ReverseProxyMode `json:"mode,omitempty"`
 
-	// ListenPort is the port the proxy listens on (L4 modes only — tcp/tls/udp).
-	// 0 (or unset) lets NetBird auto-assign. Ignored for mode=http.
+	// ListenPort is the public port the proxy listens on. Required for L4 modes
+	// (tcp/tls/udp) — it both fixes the well-known port (e.g. 25/465/993 for
+	// mail) and disambiguates the per-port service domain. Ignored for mode=http.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=65535
@@ -129,7 +131,15 @@ type ReverseProxyServiceSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	ProxyCluster string `json:"proxyCluster"`
 
-	// Domain is the hostname the service is published under.
+	// Domain is the public hostname clients connect to. For mode=http/tls it is
+	// the service domain verbatim (HTTP routing / TLS SNI). For mode=tcp/udp it
+	// is the shared host: NetBird allows only one service per domain, and L4
+	// connections route by listen port (no SNI), so the operator publishes each
+	// port as a distinct per-port subdomain (<mode>-<listenPort>.<Domain>, shown
+	// in status.serviceDomain) under this host. Expose several L4 ports under one
+	// hostname with one CR per port, all sharing this Domain. The host must
+	// resolve to a proxy cluster (be the cluster address, its subdomain, or a
+	// registered NetBird custom domain) and have public DNS pointing at it.
 	// +kubebuilder:validation:MinLength=1
 	Domain string `json:"domain"`
 
@@ -178,12 +188,19 @@ type ReverseProxyServiceStatus struct {
 	// ServiceID is the id of the created NetBird reverse-proxy service.
 	// +optional
 	ServiceID string `json:"serviceID,omitempty"`
+
+	// ServiceDomain is the domain actually registered with NetBird. It equals
+	// spec.domain for http/tls, and the synthesized per-port subdomain
+	// (<mode>-<listenPort>.<spec.domain>) for tcp/udp.
+	// +optional
+	ServiceDomain string `json:"serviceDomain,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource
 // +kubebuilder:printcolumn:name="Domain",type="string",JSONPath=".spec.domain",description=""
+// +kubebuilder:printcolumn:name="Service Domain",type="string",JSONPath=".status.serviceDomain",description="",priority=1
 // +kubebuilder:printcolumn:name="Private",type="boolean",JSONPath=".spec.private",description=""
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""

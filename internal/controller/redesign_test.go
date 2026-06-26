@@ -307,7 +307,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(services).To(HaveLen(1))
 			svc := services[0]
-			Expect(svc.Domain).To(Equal("mail.example.com"))
+			// tcp/udp route by port, so the service domain is a synthesized
+			// per-port subdomain of the shared public host.
+			Expect(svc.Domain).To(Equal("tcp-25.mail.example.com"))
 			Expect(svc.Mode).NotTo(BeNil())
 			Expect(*svc.Mode).To(Equal(api.ServiceMode(api.ServiceRequestModeTcp)))
 			Expect(svc.ListenPort).NotTo(BeNil())
@@ -322,6 +324,46 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(target.Options).NotTo(BeNil())
 			Expect(target.Options.ProxyProtocol).NotTo(BeNil())
 			Expect(*target.Options.ProxyProtocol).To(BeTrue())
+
+			// The synthesized domain is surfaced in status for transparency.
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rps), rps)).To(Succeed())
+			Expect(rps.Status.ServiceDomain).To(Equal("tcp-25.mail.example.com"))
+		})
+
+		It("publishes several L4 ports under one host as distinct per-port domains", func() {
+			readyNetwork()
+			readyZone("kube.example.com")
+			lbService("mail", "192.0.2.20")
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}, "mail")
+			Expect(err).NotTo(HaveOccurred())
+
+			controls.AddProxyCluster("cluster-1", "gate.test")
+
+			// One CR per port, all sharing the public host mail.example.com.
+			for _, port := range []int{25, 465} {
+				p := port
+				rps := &nbv1alpha1.ReverseProxyService{
+					ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("mail-%d", p), Namespace: ns},
+					Spec: nbv1alpha1.ReverseProxyServiceSpec{
+						Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "mail"}, Port: p}},
+						ProxyCluster: "gate.test",
+						Domain:       "mail.example.com",
+						Mode:         nbv1alpha1.ReverseProxyModeTCP,
+						ListenPort:   &p,
+					},
+				}
+				Expect(k8sClient.Create(ctx, rps)).To(Succeed())
+				_, err = reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), rps.Name)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			services, err := nbClient.ReverseProxyServices.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(services).To(HaveLen(2))
+			domains := []string{services[0].Domain, services[1].Domain}
+			// Distinct NetBird domains (so NetBird's one-service-per-domain rule
+			// is satisfied) under the one shared host.
+			Expect(domains).To(ConsistOf("tcp-25.mail.example.com", "tcp-465.mail.example.com"))
 		})
 
 		It("requires an explicit backend port for a multi-port backend", func() {
