@@ -168,6 +168,11 @@ advertiseLoadBalancers: true
 # policy-targetable).
 defaultResourceGroups: ""
 
+# Enable the opt-in Gateway API -> ReverseProxyService translation: the
+# GatewayClass controller (controllerName netbird.io/byop-proxy) and the
+# HTTPRoute controller. Requires the Gateway API CRDs installed in the cluster.
+enableGatewayAPI: false
+
 # Optionally deploy a cluster-wide NetBird bring-your-own reverse proxy
 # (ReverseProxyCluster) into the operator's namespace. The operator deploys +
 # enrols the proxy and registers it as the account's own proxy cluster;

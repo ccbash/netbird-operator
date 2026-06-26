@@ -57,6 +57,9 @@ spec:
           {{- if .Values.defaultResourceGroups }}
           - --default-resource-groups={{ .Values.defaultResourceGroups }}
           {{- end }}
+          {{- if .Values.enableGatewayAPI }}
+          - --enable-gateway-api
+          {{- end }}
           {{- if .Values.managementURL }}
           - --netbird-management-url={{.Values.managementURL}}
           {{- end }}
