@@ -954,6 +954,11 @@ func (in *ReverseProxyServiceSpec) DeepCopyInto(out *ReverseProxyServiceSpec) {
 		*out = new(int)
 		**out = **in
 	}
+	if in.ProxyProtocol != nil {
+		in, out := &in.ProxyProtocol, &out.ProxyProtocol
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Private != nil {
 		in, out := &in.Private, &out.Private
 		*out = new(bool)

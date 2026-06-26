@@ -232,6 +232,16 @@ spec:
                   a proxy-cluster ID and points the service's targets at it.
                 minLength: 1
                 type: string
+              proxyProtocol:
+                description: |-
+                  ProxyProtocol, when true, makes the proxy prepend a PROXY protocol v2
+                  header to each backend connection so the backend sees the real client IP
+                  and port instead of the proxy's. Applies to tcp/tls modes only (the
+                  NetBird API rejects it elsewhere; HTTP conveys the client IP via
+                  X-Forwarded-For). Required for mail backends that enforce SPF/DNSBL,
+                  greylist, or log the client address — the backend must be configured to
+                  accept PROXY protocol on the listening port.
+                type: boolean
               rewriteRedirects:
                 description: |-
                   RewriteRedirects, when true, rewrites Location headers in backend
@@ -252,6 +262,9 @@ spec:
                 == ''http'''
             - message: listenPort only applies to L4 modes (tcp/tls/udp)
               rule: '!has(self.listenPort) || (has(self.mode) && self.mode != ''http'')'
+            - message: proxyProtocol (PROXY protocol v2) only applies to tcp/tls modes
+              rule: '!has(self.proxyProtocol) || !self.proxyProtocol || (has(self.mode)
+                && (self.mode == ''tcp'' || self.mode == ''tls''))'
           status:
             default:
               observedGeneration: -1

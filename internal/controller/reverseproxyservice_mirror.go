@@ -52,6 +52,9 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 
 	mode, proto := serviceMode(rps.Spec.Mode)
 	isHTTP := mode == api.ServiceRequestModeHttp
+	// PROXY protocol v2 is a tcp/tls-only backend option; the CRD CEL already
+	// rejects it elsewhere, so this gate only ever skips it for http/udp.
+	proxyProtocol := mode == api.ServiceRequestModeTcp || mode == api.ServiceRequestModeTls
 
 	targets := make([]api.ServiceTarget, 0, len(rps.Spec.Backends))
 	for _, b := range rps.Spec.Backends {
@@ -65,6 +68,13 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 		}
 		host := fqdn
 		direct := true
+		opts := &api.ServiceTargetOptions{DirectUpstream: &direct}
+		// Mirror the CRD's proxyProtocol verbatim onto every target so the
+		// translation is transparent: nil leaves the NetBird default, an
+		// explicit true/false is sent as-is.
+		if proxyProtocol && rps.Spec.ProxyProtocol != nil {
+			opts.ProxyProtocol = rps.Spec.ProxyProtocol
+		}
 		target := api.ServiceTarget{
 			Enabled:    true,
 			Host:       &host,
@@ -74,7 +84,7 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 			// A cluster target references the cluster's CNAME address (e.g.
 			// gate.example.com), not cluster.Id which is a single proxy node.
 			TargetId: cluster.Address,
-			Options:  &api.ServiceTargetOptions{DirectUpstream: &direct},
+			Options:  opts,
 		}
 		// Path is HTTP-only; L4 targets route by listen port, not URL path.
 		if isHTTP && b.Path != "" {
@@ -155,7 +165,10 @@ func backendFQDN(ctx context.Context, c client.Client, namespace, svcName string
 	return records.Items[0].Spec.Name, nil
 }
 
-// backendPort returns want, or the Service's first port when want is 0.
+// backendPort returns want, or the Service's only port when want is 0. The
+// implicit default is taken only when it is unambiguous: a multi-port backend
+// (e.g. a mail Service exposing 25/465/587/993) requires an explicit
+// backends[].port, otherwise every CR would silently target the first port.
 func backendPort(ctx context.Context, c client.Client, namespace, svcName string, want int) (int, error) {
 	if want != 0 {
 		return want, nil
@@ -164,10 +177,14 @@ func backendPort(ctx context.Context, c client.Client, namespace, svcName string
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc); err != nil {
 		return 0, err
 	}
-	if len(svc.Spec.Ports) == 0 {
+	switch len(svc.Spec.Ports) {
+	case 0:
 		return 0, fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
+	case 1:
+		return int(svc.Spec.Ports[0].Port), nil
+	default:
+		return 0, fmt.Errorf("service %s/%s exposes %d ports; set backends[].port explicitly", namespace, svcName, len(svc.Spec.Ports))
 	}
-	return int(svc.Spec.Ports[0].Port), nil
 }
 
 // sortServiceTargets orders targets deterministically so an unchanged reconcile

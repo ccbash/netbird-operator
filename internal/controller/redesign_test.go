@@ -287,14 +287,16 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			controls.AddProxyCluster("cluster-1", "gate.test")
 
 			listen := 25
+			proxyProto := true
 			rps := &nbv1alpha1.ReverseProxyService{
 				ObjectMeta: metav1.ObjectMeta{Name: "mail-smtp", Namespace: ns},
 				Spec: nbv1alpha1.ReverseProxyServiceSpec{
-					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "mail"}, Port: 25, Path: "/"}},
-					ProxyCluster: "gate.test",
-					Domain:       "mail.example.com",
-					Mode:         nbv1alpha1.ReverseProxyModeTCP,
-					ListenPort:   &listen,
+					Backends:      []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "mail"}, Port: 25, Path: "/"}},
+					ProxyCluster:  "gate.test",
+					Domain:        "mail.example.com",
+					Mode:          nbv1alpha1.ReverseProxyModeTCP,
+					ListenPort:    &listen,
+					ProxyProtocol: &proxyProto,
 				},
 			}
 			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
@@ -315,6 +317,55 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(target.Protocol).To(Equal(api.ServiceTargetProtocolTcp))
 			Expect(target.Port).To(Equal(25))
 			Expect(target.Path).To(BeNil()) // path is HTTP-only
+			// proxyProtocol is mirrored onto the target so the backend sees the
+			// real client IP.
+			Expect(target.Options).NotTo(BeNil())
+			Expect(target.Options.ProxyProtocol).NotTo(BeNil())
+			Expect(*target.Options.ProxyProtocol).To(BeTrue())
+		})
+
+		It("requires an explicit backend port for a multi-port backend", func() {
+			readyNetwork()
+			readyZone("kube.example.com")
+
+			// A mail-style LoadBalancer Service exposing several ports under one
+			// IP/name; the LoadBalancer controller advertises it (one DNSRecord).
+			svc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "mail",
+					Namespace:   ns,
+					Annotations: map[string]string{networkAnnotation: ns, zoneAnnotation: ns},
+				},
+				Spec: corev1.ServiceSpec{
+					Type:  corev1.ServiceTypeLoadBalancer,
+					Ports: []corev1.ServicePort{{Name: "smtp", Port: 25}, {Name: "imaps", Port: 993}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
+			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.21"}}
+			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}, "mail")
+			Expect(err).NotTo(HaveOccurred())
+
+			controls.AddProxyCluster("cluster-1", "gate.test")
+
+			listen := 25
+			rps := &nbv1alpha1.ReverseProxyService{
+				ObjectMeta: metav1.ObjectMeta{Name: "mail-smtp", Namespace: ns},
+				Spec: nbv1alpha1.ReverseProxyServiceSpec{
+					// Port omitted on purpose — ambiguous against a multi-port backend.
+					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "mail"}}},
+					ProxyCluster: "gate.test",
+					Domain:       "mail.example.com",
+					Mode:         nbv1alpha1.ReverseProxyModeTCP,
+					ListenPort:   &listen,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
+			_, err = reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), "mail-smtp")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("set backends[].port explicitly"))
 		})
 	})
 

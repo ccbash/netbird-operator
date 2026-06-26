@@ -70,10 +70,20 @@ spec:
   listenPort: 465
   domain: mail.example.com
   proxyCluster: gate.example.com
+  proxyProtocol: true          # backend sees the real client IP (tcp/tls only)
   backends:
     - serviceRef: { name: mail }
-      port: 465
+      port: 465                # REQUIRED when the backend Service has >1 port
 ```
+
+When the backend `Service` exposes more than one port (the usual mail case),
+`backends[].port` is **required** — the operator refuses to guess rather than
+silently target the Service's first port.
+
+For mail and other backends that enforce SPF/DNSBL, greylist, or log the
+client address, set `proxyProtocol: true` (tcp/tls only): the proxy prepends a
+PROXY protocol v2 header so the backend sees the real client IP instead of the
+proxy's. The backend must be configured to accept PROXY protocol on that port.
 
 `private: true` and `accessGroups` are HTTP-only (the NetBird auto-ACL requires
 `mode=http`). Gate L4 access with `accessRestrictions` (CIDR/geo) — e.g. limit

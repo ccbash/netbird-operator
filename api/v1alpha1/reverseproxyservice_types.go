@@ -92,6 +92,7 @@ type ReverseProxyBackend struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || !has(self.mode) || self.mode == 'http'",message="private requires mode http (the NetBird API only supports the auto-ACL on HTTP services)"
 // +kubebuilder:validation:XValidation:rule="!has(self.listenPort) || (has(self.mode) && self.mode != 'http')",message="listenPort only applies to L4 modes (tcp/tls/udp)"
+// +kubebuilder:validation:XValidation:rule="!has(self.proxyProtocol) || !self.proxyProtocol || (has(self.mode) && (self.mode == 'tcp' || self.mode == 'tls'))",message="proxyProtocol (PROXY protocol v2) only applies to tcp/tls modes"
 type ReverseProxyServiceSpec struct {
 	// Backends are the LoadBalancer Services this service proxies to, by path.
 	// +kubebuilder:validation:MinItems=1
@@ -111,6 +112,16 @@ type ReverseProxyServiceSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=65535
 	ListenPort *int `json:"listenPort,omitempty"`
+
+	// ProxyProtocol, when true, makes the proxy prepend a PROXY protocol v2
+	// header to each backend connection so the backend sees the real client IP
+	// and port instead of the proxy's. Applies to tcp/tls modes only (the
+	// NetBird API rejects it elsewhere; HTTP conveys the client IP via
+	// X-Forwarded-For). Required for mail backends that enforce SPF/DNSBL,
+	// greylist, or log the client address — the backend must be configured to
+	// accept PROXY protocol on the listening port.
+	// +optional
+	ProxyProtocol *bool `json:"proxyProtocol,omitempty"`
 
 	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
 	// serves this service, e.g. "gate.example.com". The operator resolves it to

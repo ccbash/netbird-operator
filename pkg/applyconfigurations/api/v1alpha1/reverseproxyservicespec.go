@@ -26,6 +26,14 @@ type ReverseProxyServiceSpecApplyConfiguration struct {
 	// ListenPort is the port the proxy listens on (L4 modes only — tcp/tls/udp).
 	// 0 (or unset) lets NetBird auto-assign. Ignored for mode=http.
 	ListenPort *int `json:"listenPort,omitempty"`
+	// ProxyProtocol, when true, makes the proxy prepend a PROXY protocol v2
+	// header to each backend connection so the backend sees the real client IP
+	// and port instead of the proxy's. Applies to tcp/tls modes only (the
+	// NetBird API rejects it elsewhere; HTTP conveys the client IP via
+	// X-Forwarded-For). Required for mail backends that enforce SPF/DNSBL,
+	// greylist, or log the client address — the backend must be configured to
+	// accept PROXY protocol on the listening port.
+	ProxyProtocol *bool `json:"proxyProtocol,omitempty"`
 	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
 	// serves this service, e.g. "gate.example.com". The operator resolves it to
 	// a proxy-cluster ID and points the service's targets at it.
@@ -83,6 +91,14 @@ func (b *ReverseProxyServiceSpecApplyConfiguration) WithMode(value apiv1alpha1.R
 // If called multiple times, the ListenPort field is set to the value of the last call.
 func (b *ReverseProxyServiceSpecApplyConfiguration) WithListenPort(value int) *ReverseProxyServiceSpecApplyConfiguration {
 	b.ListenPort = &value
+	return b
+}
+
+// WithProxyProtocol sets the ProxyProtocol field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProxyProtocol field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithProxyProtocol(value bool) *ReverseProxyServiceSpecApplyConfiguration {
+	b.ProxyProtocol = &value
 	return b
 }
 
