@@ -292,6 +292,14 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	if err := controller.NewReverseProxyServiceReconciler(mgr.GetClient(), nbClient, mgr.GetEventRecorderFor("reverseproxyservice")).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup ReverseProxyService controller: %w", err)
 	}
+	if err := (&controller.ReverseProxyClusterReconciler{
+		Client:        mgr.GetClient(),
+		Netbird:       nbClient,
+		ManagementURL: managementURL,
+		Recorder:      mgr.GetEventRecorderFor("reverseproxycluster"),
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("setup ReverseProxyCluster controller: %w", err)
+	}
 	return nil
 }
 

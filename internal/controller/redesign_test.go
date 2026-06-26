@@ -428,6 +428,76 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 		})
 	})
 
+	Describe("ReverseProxyCluster", func() {
+		It("deploys and enrolls a BYOP proxy with token, Service, DNS and readiness", func() {
+			all := "All"
+			rpc := &nbv1alpha1.ReverseProxyCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "gate", Namespace: ns},
+				Spec: nbv1alpha1.ReverseProxyClusterSpec{
+					ClusterAddress: "gate.ccbash.cloud",
+					Domain:         "ccbash.cloud",
+					CertSecretName: "wildcard-tls",
+					Groups:         []nbv1alpha1.GroupReference{{Name: &all}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, rpc)).To(Succeed())
+
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			// First reconcile: token Secret, Deployment, Service, DNSZone; waits on LB IP.
+			_, err := reconcileOnce(r, "gate")
+			Expect(err).NotTo(HaveOccurred())
+
+			name := "reverseproxycluster-gate"
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: ns}, secret)).To(Succeed())
+			Expect(secret.Data).To(HaveKey("token"))
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: ns}, dep)).To(Succeed())
+			env := dep.Spec.Template.Spec.Containers[0].Env
+			Expect(envValue(env, "NB_PROXY_DOMAIN")).To(Equal("gate.ccbash.cloud"))
+			Expect(envValue(env, "NB_PROXY_MANAGEMENT_ADDRESS")).To(Equal("https://mgmt.test"))
+			Expect(dep.Spec.Template.Spec.Containers[0].Image).To(Equal("netbirdio/reverse-proxy:latest"))
+
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: ns}, svc)).To(Succeed())
+			Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeLoadBalancer))
+
+			zone := &nbv1alpha1.DNSZone{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: ns}, zone)).To(Succeed())
+			Expect(zone.Spec.Domain).To(Equal("ccbash.cloud"))
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rpc), rpc)).To(Succeed())
+			Expect(rpc.Status.TokenID).NotTo(BeEmpty())
+
+			// Assign the LB IP (no cloud controller in envtest) and seed enrollment.
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
+			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.50"}}
+			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
+			controls.AddProxyCluster("c1", "gate.ccbash.cloud")
+
+			_, err = reconcileOnce(r, "gate")
+			Expect(err).NotTo(HaveOccurred())
+
+			aRec := &nbv1alpha1.DNSRecord{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name + "-a", Namespace: ns}, aRec)).To(Succeed())
+			Expect(aRec.Spec.Type).To(Equal("A"))
+			Expect(aRec.Spec.Content).To(Equal("192.0.2.50"))
+			Expect(aRec.Spec.Name).To(Equal("gate.ccbash.cloud"))
+
+			catch := &nbv1alpha1.DNSRecord{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name + "-catchall", Namespace: ns}, catch)).To(Succeed())
+			Expect(catch.Spec.Type).To(Equal("CNAME"))
+			Expect(catch.Spec.Name).To(Equal("*.ccbash.cloud"))
+			Expect(catch.Spec.Content).To(Equal("gate.ccbash.cloud"))
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rpc), rpc)).To(Succeed())
+			Expect(rpc.Status.LoadBalancerIP).To(Equal("192.0.2.50"))
+			Expect(rpc.Status.ClusterAddress).To(Equal("gate.ccbash.cloud"))
+			Expect(meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+		})
+	})
+
 	Describe("out-of-band deletion recovery", func() {
 		It("Network recreates when its NetBird network was deleted out of band", func() {
 			network := readyNetwork()
@@ -444,3 +514,13 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 		})
 	})
 })
+
+// envValue returns the literal value of the named env var, or "".
+func envValue(env []corev1.EnvVar, name string) string {
+	for _, e := range env {
+		if e.Name == name {
+			return e.Value
+		}
+	}
+	return ""
+}

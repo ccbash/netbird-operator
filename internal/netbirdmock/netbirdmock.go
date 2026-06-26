@@ -96,6 +96,14 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 		return output
 	})
 
+	// Reverse-proxy enrollment tokens minted by the operator for a BYOP cluster.
+	addHandler(mux, "reverse-proxies/proxy-tokens", func(id string, input api.ProxyTokenRequest, output api.ProxyTokenCreated) api.ProxyTokenCreated {
+		output.Id = id
+		output.Name = input.Name
+		output.PlainToken = "plain-" + id
+		return output
+	})
+
 	addHandler(mux, "groups", func(id string, input api.GroupRequest, output api.Group) api.Group {
 		output.Id = id
 		output.Name = input.Name
