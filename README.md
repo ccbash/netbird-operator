@@ -113,10 +113,10 @@ Worked examples under [`examples/`](examples/), each with its own README:
 
 | Example | What it shows |
 |---------|---------------|
-| [expose](examples/expose/README.md) | Advertise a `Service type=LoadBalancer` over the mesh and publish it through the NetBird reverse proxy (the end-to-end walkthrough). |
+| [expose](examples/expose/README.md) | Advertise an HTTP `Service type=LoadBalancer` over the mesh and publish it through the NetBird reverse proxy (the end-to-end walkthrough). |
 | [mail](examples/mail/README.md) | Expose a mail server on many TCP ports (SMTP/IMAP/ManageSieve) under one hostname — L4 per-port services with PROXY protocol. |
+| [gateway](examples/gateway/README.md) | How a Gateway API `Gateway`/`HTTPRoute` is handled — the operator advertises the gateway's LoadBalancer Service; routing stays the gateway's job. |
 | [cluster-proxy](examples/cluster-proxy/README.md) | Put the Kubernetes API server on the mesh and reach it with `kubectl` over NetBird. |
-| [network](examples/network/README.md) | Route an arbitrary address (IP/CIDR/domain) into a network with the raw `Network`/`NetworkRouter`/`NetworkResource` CRDs. |
 | [sidecar](examples/sidecar/README.md) | Inject a NetBird sidecar peer into Pods via a `SidecarProfile`. |
 
 ## API

@@ -1,0 +1,69 @@
+# How the operator handles Gateway API: it doesn't, specially. A Gateway's data
+# plane is a Service type=LoadBalancer (provisioned by your gateway controller —
+# kgateway, Cilium, Istio, …); the operator advertises THAT Service like any
+# other LoadBalancer Service. HTTPRoutes do L7 host/path routing behind that one
+# advertised IP — entirely the gateway's job. The operator reads no Gateway or
+# HTTPRoute objects.
+#
+# Control advertising by annotating the gateway's namespace (the generated
+# data-plane Service inherits namespace annotations); it picks the network, zone
+# and groups, and can opt out.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: edge
+  annotations:
+    netbird.io/network: kube
+    netbird.io/dns-zone: kube
+    netbird.io/groups: All
+    # netbird.io/advertise: "false"   # opt the whole namespace out
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: web
+  namespace: edge
+spec:
+  gatewayClassName: kgateway          # your installed GatewayClass
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces: { from: Same }
+---
+# Stock Gateway API L7 routing — the operator is not involved here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app
+  namespace: edge
+spec:
+  parentRefs:
+    - name: web
+  hostnames: [ "app.kube.example.com" ]
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - name: app
+          port: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: app, namespace: edge, labels: { app: app } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: app } }
+  template:
+    metadata: { labels: { app: app } }
+    spec:
+      containers:
+        - { name: nginx, image: nginx }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: app, namespace: edge }
+spec:
+  selector: { app: app }
+  ports: [ { name: http, port: 80, targetPort: 80 } ]
