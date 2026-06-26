@@ -1,0 +1,244 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: reverseproxyclusters.netbird.io
+spec:
+  group: netbird.io
+  names:
+    kind: ReverseProxyCluster
+    listKind: ReverseProxyClusterList
+    plural: reverseproxyclusters
+    singular: reverseproxycluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.clusterAddress
+      name: Cluster Address
+      type: string
+    - jsonPath: .status.loadBalancerIP
+      name: LB IP
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ReverseProxyCluster deploys and enrolls a NetBird bring-your-own reverse proxy
+          and registers it as the account's own proxy cluster.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              ReverseProxyClusterSpec defines the desired state of ReverseProxyCluster. It
+              is admin-authored: creating one deploys and enrolls a NetBird bring-your-own
+              reverse proxy (the netbirdio/reverse-proxy image) and registers it as the
+              account's own proxy cluster. The proxy runs behind a Service type=LoadBalancer
+              (its ingress IP comes from the cluster's LB-IPAM) and is reached over the
+              mesh; ReverseProxyService.proxyCluster targets its ClusterAddress.
+            properties:
+              certSecretName:
+                description: |-
+                  CertSecretName is a kubernetes.io/tls Secret (tls.crt/tls.key) in the same
+                  namespace — typically a cert-manager wildcard for Domain — mounted into the
+                  proxy as its static TLS certificate. The proxy does no ACME.
+                type: string
+              clusterAddress:
+                description: |-
+                  ClusterAddress is the address the proxy registers under (the proxy's
+                  NB_PROXY_DOMAIN), e.g. "gate.ccbash.cloud". ReverseProxyService.proxyCluster
+                  references it. It must sit under Domain so service domains derive this
+                  cluster.
+                minLength: 1
+                type: string
+              domain:
+                description: |-
+                  Domain is the DNS zone the proxy fronts, e.g. "ccbash.cloud". The operator
+                  ensures a DNSZone for it (unless ZoneRef is set) and creates the proxy's A
+                  record (ClusterAddress -> the LoadBalancer IP) plus a catch-all
+                  (*.Domain -> ClusterAddress) so any service hostname resolves to the proxy.
+                minLength: 1
+                type: string
+              groups:
+                description: |-
+                  Groups are NetBird groups the proxy's advertised LoadBalancer resource
+                  joins, so access policies can target it.
+                items:
+                  properties:
+                    id:
+                      description: ID is the id of the group.
+                      type: string
+                    localRef:
+                      description: LocalReference is a reference to a group in the
+                        same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    name:
+                      description: Name is the name of the group.
+                      type: string
+                  type: object
+                  x-kubernetes-validations:
+                  - message: Exactly one of id, name, or localRef must be set
+                    rule: (has(self.id)?1:0)+(has(self.name)?1:0)+(has(self.localRef)?1:0)==1
+                type: array
+              image:
+                description: |-
+                  Image overrides the netbird reverse-proxy image. Defaults to the operator's
+                  pinned image.
+                type: string
+              replicas:
+                default: 1
+                description: Replicas of the proxy Deployment. Defaults to 1.
+                format: int32
+                minimum: 1
+                type: integer
+              serviceAnnotations:
+                additionalProperties:
+                  type: string
+                description: |-
+                  ServiceAnnotations are added to the proxy's LoadBalancer Service, e.g. to
+                  pin an LB-IPAM pool or request a specific IP.
+                type: object
+              zoneRef:
+                description: ZoneRef references an existing DNSZone for Domain instead
+                  of creating one.
+                properties:
+                  name:
+                    description: Name of the referent.
+                    type: string
+                  namespace:
+                    description: Namespace of the referent.
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+            required:
+            - clusterAddress
+            - domain
+            type: object
+          status:
+            default:
+              observedGeneration: -1
+            description: ReverseProxyClusterStatus defines the observed state of ReverseProxyCluster.
+            properties:
+              clusterAddress:
+                description: |-
+                  ClusterAddress echoes the registered cluster address once the proxy has
+                  enrolled (resolvable via the Management API).
+                type: string
+              conditions:
+                description: Conditions holds the conditions for the ReverseProxyCluster.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              loadBalancerIP:
+                description: |-
+                  LoadBalancerIP is the proxy Service's assigned ingress IP — what the A
+                  record points at.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the last reconciled generation.
+                format: int64
+                type: integer
+              tokenID:
+                description: |-
+                  TokenID is the id of the minted proxy token (revoked when the cluster is
+                  deleted).
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

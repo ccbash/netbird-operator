@@ -1,0 +1,25 @@
+{{- if .Values.reverseProxyCluster.enabled }}
+apiVersion: netbird.io/v1alpha1
+kind: ReverseProxyCluster
+metadata:
+  name: {{ include "netbird-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netbird-operator.labels" . | nindent 4 }}
+spec:
+  clusterAddress: {{ .Values.reverseProxyCluster.clusterAddress | default .Values.reverseProxyCluster.domain | quote }}
+  domain: {{ required "reverseProxyCluster.domain is required when reverseProxyCluster.enabled" .Values.reverseProxyCluster.domain | quote }}
+  {{- with .Values.reverseProxyCluster.certSecretName }}
+  certSecretName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.reverseProxyCluster.groups }}
+  groups:
+    {{- range . }}
+    - name: {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  {{- with .Values.reverseProxyCluster.serviceAnnotations }}
+  serviceAnnotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

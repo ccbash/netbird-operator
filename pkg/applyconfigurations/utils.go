@@ -72,6 +72,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.NetworkStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyBackend"):
 		return &apiv1alpha1.ReverseProxyBackendApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyCluster"):
+		return &apiv1alpha1.ReverseProxyClusterApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyClusterSpec"):
+		return &apiv1alpha1.ReverseProxyClusterSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyClusterStatus"):
+		return &apiv1alpha1.ReverseProxyClusterStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyService"):
 		return &apiv1alpha1.ReverseProxyServiceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ReverseProxyServiceSpec"):
