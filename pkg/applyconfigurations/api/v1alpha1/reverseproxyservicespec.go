@@ -43,11 +43,14 @@ type ReverseProxyServiceSpecApplyConfiguration struct {
 	// the service domain verbatim (HTTP routing / TLS SNI). For mode=tcp/udp it
 	// is the shared host: NetBird allows only one service per domain, and L4
 	// connections route by listen port (no SNI), so the operator publishes each
-	// port as a distinct per-port subdomain (<listenPort>-<mode>.<Domain>, shown
-	// in status.serviceDomain) under this host. Expose several L4 ports under one
-	// hostname with one CR per port, all sharing this Domain. The host must
-	// resolve to a proxy cluster (be the cluster address, its subdomain, or a
-	// registered NetBird custom domain) and have public DNS pointing at it.
+	// port under a distinct per-port sibling subdomain
+	// <first-label>-<portName>.<parent> — e.g. mail.example.com + the backend's
+	// "smtp" port becomes mail-smtp.example.com (the backend Service port's name,
+	// or its number when unnamed; shown in status.serviceDomain). Expose several
+	// L4 ports under one hostname with one CR per port, all sharing this Domain.
+	// For tcp/udp the registered NetBird custom domain (or cluster address) must
+	// be the PARENT (e.g. example.com), since the per-port siblings derive the
+	// cluster through it; public DNS for the host points at the cluster ingress.
 	Domain *string `json:"domain,omitempty"`
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is

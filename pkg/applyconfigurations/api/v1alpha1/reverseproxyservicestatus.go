@@ -20,8 +20,8 @@ type ReverseProxyServiceStatusApplyConfiguration struct {
 	// ServiceID is the id of the created NetBird reverse-proxy service.
 	ServiceID *string `json:"serviceID,omitempty"`
 	// ServiceDomain is the domain actually registered with NetBird. It equals
-	// spec.domain for http/tls, and the synthesized per-port subdomain
-	// (<listenPort>-<mode>.<spec.domain>) for tcp/udp.
+	// spec.domain for http/tls, and the synthesized per-port sibling subdomain
+	// (<first-label>-<portName>.<parent>, e.g. mail-smtp.example.com) for tcp/udp.
 	ServiceDomain *string `json:"serviceDomain,omitempty"`
 }
 

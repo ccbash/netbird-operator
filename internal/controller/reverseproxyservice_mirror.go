@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -52,27 +54,28 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 
 	mode, proto := serviceMode(rps.Spec.Mode)
 	isHTTP := mode == api.ServiceRequestModeHttp
+	isPortRouted := mode == api.ServiceRequestModeTcp || mode == api.ServiceRequestModeUdp
 	// PROXY protocol v2 is a tcp/tls-only backend option; the CRD CEL already
 	// rejects it elsewhere, so this gate only ever skips it for http/udp.
 	proxyProtocol := mode == api.ServiceRequestModeTcp || mode == api.ServiceRequestModeTls
 
-	// NetBird allows only one service per domain. tcp/udp connections route by
-	// listen port (no SNI), so to publish several ports under one hostname the
-	// operator registers each port under a distinct per-port subdomain of the
-	// shared public host. http (Host routing) and tls (SNI) must keep the domain
-	// verbatim. The synthesized subdomain still derives the same proxy cluster
-	// (suffix match) and needs no public DNS — clients reach the shared host.
-	serviceDomain := serviceDomain(mode, rps.Spec.Domain, rps.Spec.ListenPort)
-
 	targets := make([]api.ServiceTarget, 0, len(rps.Spec.Backends))
-	for _, b := range rps.Spec.Backends {
+	portLabel := "" // backend port name (or number) for the L4 per-port domain
+	for i, b := range rps.Spec.Backends {
 		fqdn, err := backendFQDN(ctx, c, rps.Namespace, b.ServiceRef.Name)
 		if err != nil {
 			return err
 		}
-		port, err := backendPort(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
+		port, name, err := backendPort(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
 		if err != nil {
 			return err
+		}
+		// L4 services have a single backend; label the per-port domain by its
+		// port name, falling back to the number.
+		if i == 0 {
+			if portLabel = name; portLabel == "" {
+				portLabel = strconv.Itoa(port)
+			}
 		}
 		host := fqdn
 		direct := true
@@ -102,6 +105,18 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 		targets = append(targets, target)
 	}
 	sortServiceTargets(targets)
+
+	// NetBird allows only one service per domain. tcp/udp connections route by
+	// listen port (no SNI), so to publish several ports under one hostname the
+	// operator gives each port a distinct sibling subdomain
+	// "<first-label>-<portLabel>.<parent>" (e.g. mail.example.com + smtp ->
+	// mail-smtp.example.com). http (Host routing) and tls (SNI) keep the domain
+	// verbatim. The synthesized name still derives the same proxy cluster (it
+	// suffix-matches the parent) and needs no public DNS of its own.
+	serviceDomain := rps.Spec.Domain
+	if isPortRouted && rps.Spec.ListenPort != nil {
+		serviceDomain = portLabelDomain(rps.Spec.Domain, portLabel)
+	}
 
 	req := api.ServiceRequest{
 		Domain:           serviceDomain,
@@ -176,22 +191,29 @@ func backendFQDN(ctx context.Context, c client.Client, namespace, svcName string
 	return records.Items[0].Spec.Name, nil
 }
 
-// backendPort returns want, or the Service's first port when want is 0. A
-// multi-port backend defaults to the first port (usually the right one for an
-// HTTP face) — set backends[].port to target a specific one, which you'll
-// normally want for L4 services fanning several ports out across CRs.
-func backendPort(ctx context.Context, c client.Client, namespace, svcName string, want int) (int, error) {
-	if want != 0 {
-		return want, nil
-	}
+// backendPort returns the backend port to dial and its Service-port name. want
+// (backends[].port) wins; 0 falls back to the Service's first port. A multi-port
+// backend thus defaults to the first port (usually the right one for an HTTP
+// face) — set backends[].port for a specific one, which you'll normally want for
+// L4 services fanning several ports out across CRs. The name ("" if the port is
+// unnamed or want isn't a Service port) labels L4 per-port domains.
+func backendPort(ctx context.Context, c client.Client, namespace, svcName string, want int) (int, string, error) {
 	svc := &corev1.Service{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if len(svc.Spec.Ports) == 0 {
-		return 0, fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
+		return 0, "", fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
 	}
-	return int(svc.Spec.Ports[0].Port), nil
+	if want == 0 {
+		return int(svc.Spec.Ports[0].Port), svc.Spec.Ports[0].Name, nil
+	}
+	for _, p := range svc.Spec.Ports {
+		if int(p.Port) == want {
+			return want, p.Name, nil
+		}
+	}
+	return want, "", nil
 }
 
 // sortServiceTargets orders targets deterministically so an unchanged reconcile
@@ -212,18 +234,17 @@ func sortServiceTargets(targets []api.ServiceTarget) {
 	})
 }
 
-// serviceDomain returns the domain to register with NetBird. http (Host
-// routing) and tls (SNI) keep the public host verbatim. tcp/udp route by listen
-// port and NetBird permits only one service per domain, so each port is
-// published under a distinct subdomain "<listenPort>-<mode>.<host>" — port first
-// so entries read and sort by port; unique across port+mode, and still a
-// subdomain of host so it derives the same proxy cluster (suffix match) without
-// needing its own public DNS.
-func serviceDomain(mode api.ServiceRequestMode, host string, listenPort *int) string {
-	if (mode == api.ServiceRequestModeTcp || mode == api.ServiceRequestModeUdp) && listenPort != nil {
-		return fmt.Sprintf("%d-%s.%s", *listenPort, mode, host)
+// portLabelDomain builds the L4 per-port domain by appending "-<label>" to the
+// first label of host: portLabelDomain("mail.example.com", "smtp") =
+// "mail-smtp.example.com". The result is a sibling under host's parent, so that
+// parent (e.g. example.com) must be the registered NetBird custom domain — or a
+// cluster address — for the synthesized name to derive the proxy cluster.
+func portLabelDomain(host, label string) string {
+	first, rest, found := strings.Cut(host, ".")
+	if !found {
+		return first + "-" + label
 	}
-	return host
+	return first + "-" + label + "." + rest
 }
 
 // serviceMode maps the CRD's mode onto the NetBird API request mode and the

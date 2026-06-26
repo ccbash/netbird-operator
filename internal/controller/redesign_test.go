@@ -280,7 +280,15 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 		It("exposes an L4 (tcp) service on a fixed listen port", func() {
 			readyNetwork()
 			readyZone("kube.example.com")
-			lbService("mail", "192.0.2.20")
+			// Backend with a named port (smtp) so the per-port domain reads mail-smtp.
+			backend := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: ns, Annotations: map[string]string{networkAnnotation: ns, zoneAnnotation: ns}},
+				Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, Ports: []corev1.ServicePort{{Name: "smtp", Port: 25}}},
+			}
+			Expect(k8sClient.Create(ctx, backend)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(backend), backend)).To(Succeed())
+			backend.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.20"}}
+			Expect(k8sClient.Status().Update(ctx, backend)).To(Succeed())
 			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}, "mail")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -307,9 +315,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(services).To(HaveLen(1))
 			svc := services[0]
-			// tcp/udp route by port, so the service domain is a synthesized
-			// per-port subdomain of the shared public host.
-			Expect(svc.Domain).To(Equal("25-tcp.mail.example.com"))
+			// tcp/udp route by port; the domain is a per-port sibling named after
+			// the backend port (smtp).
+			Expect(svc.Domain).To(Equal("mail-smtp.example.com"))
 			Expect(svc.Mode).NotTo(BeNil())
 			Expect(*svc.Mode).To(Equal(api.ServiceMode(api.ServiceRequestModeTcp)))
 			Expect(svc.ListenPort).NotTo(BeNil())
@@ -327,13 +335,21 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 
 			// The synthesized domain is surfaced in status for transparency.
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rps), rps)).To(Succeed())
-			Expect(rps.Status.ServiceDomain).To(Equal("25-tcp.mail.example.com"))
+			Expect(rps.Status.ServiceDomain).To(Equal("mail-smtp.example.com"))
 		})
 
 		It("publishes several L4 ports under one host as distinct per-port domains", func() {
 			readyNetwork()
 			readyZone("kube.example.com")
-			lbService("mail", "192.0.2.20")
+			// Multi-port mail backend with named ports.
+			backend := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: ns, Annotations: map[string]string{networkAnnotation: ns, zoneAnnotation: ns}},
+				Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, Ports: []corev1.ServicePort{{Name: "smtp", Port: 25}, {Name: "smtps", Port: 465}}},
+			}
+			Expect(k8sClient.Create(ctx, backend)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(backend), backend)).To(Succeed())
+			backend.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.20"}}
+			Expect(k8sClient.Status().Update(ctx, backend)).To(Succeed())
 			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}, "mail")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -361,9 +377,8 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(services).To(HaveLen(2))
 			domains := []string{services[0].Domain, services[1].Domain}
-			// Distinct NetBird domains (so NetBird's one-service-per-domain rule
-			// is satisfied) under the one shared host.
-			Expect(domains).To(ConsistOf("25-tcp.mail.example.com", "465-tcp.mail.example.com"))
+			// Distinct per-port sibling domains named after the backend ports.
+			Expect(domains).To(ConsistOf("mail-smtp.example.com", "mail-smtps.example.com"))
 		})
 
 		It("defaults to the backend Service's first port when none is given", func() {

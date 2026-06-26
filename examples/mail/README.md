@@ -14,11 +14,15 @@ those two facts together:
 - Write **one `ReverseProxyService` per port**, all sharing the same
   `domain: mail.example.com` and `proxyCluster`, each with a distinct
   `listenPort` and `mode: tcp`.
-- The operator registers each port under a distinct per-port subdomain
-  `<listenPort>-tcp.mail.example.com` (e.g. `25-tcp.…`, `465-tcp.…`; surfaced in
-  `status.serviceDomain`) so NetBird's one-service-per-domain rule is satisfied.
-- Clients still connect to `mail.example.com:<port>` — the synthesized
-  subdomains are internal and need no DNS of their own.
+- The operator registers each port under a distinct per-port **sibling**
+  subdomain named after the backend port: `mail-<portName>.example.com` (e.g.
+  `mail-smtp.example.com`, `mail-imaps.example.com`; the backend Service port's
+  name, or its number when unnamed; surfaced in `status.serviceDomain`) so
+  NetBird's one-service-per-domain rule is satisfied.
+- Clients still connect to `mail.example.com:<port>`. Because the per-port names
+  are **siblings** (under `example.com`, not `mail.example.com`), the registered
+  NetBird custom domain — what derives the proxy cluster — must be the **parent**
+  `example.com`.
 
 Two reachability paths come for free and coexist:
 
@@ -50,10 +54,11 @@ NAME:.metadata.name,HOST:.spec.domain,SERVICE_DOMAIN:.status.serviceDomain,READY
 - **The proxy cluster must allow custom ports** and actually listen on
   `25/465/993/4190` on its public ingress. Otherwise NetBird rejects the service
   with `custom ports not supported on cluster …`.
-- **`mail.example.com` must resolve to the proxy cluster** — be the cluster
-  address, a subdomain of it, or a registered NetBird custom domain pointing at
-  it — and have **public DNS** (A/AAAA, plus the `MX` for inbound mail) pointing
-  at the cluster ingress.
+- **The parent domain (`example.com`) must derive the proxy cluster** — be the
+  cluster address, a subdomain of it, or a registered NetBird custom domain
+  pointing at it — because the per-port siblings (`mail-smtp.example.com`, …)
+  derive the cluster through the parent. And `mail.example.com` needs **public
+  DNS** (A/AAAA, plus the `MX` for inbound mail) pointing at the cluster ingress.
 - **Set `backends[].port`** here: the backend Service has more than one port and
   an unset port defaults to the Service's *first* port — wrong for all but one of
   the mail ports. (Single-port backends can omit it.)
