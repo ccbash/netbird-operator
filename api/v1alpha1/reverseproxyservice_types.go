@@ -18,6 +18,21 @@ const (
 	CrowdsecModeEnforce CrowdsecMode = "enforce"
 )
 
+// ReverseProxyMode selects the proxy mode. "http" is an L7 reverse proxy
+// (path-based routing, TLS terminated at the edge). "tcp"/"tls"/"udp" are L4
+// passthrough on a fixed ListenPort — used for non-HTTP backends such as mail
+// (SMTP/IMAP/ManageSieve), where the backend terminates TLS itself. Maps to the
+// NetBird API ServiceRequest.mode.
+// +kubebuilder:validation:Enum=http;tcp;tls;udp
+type ReverseProxyMode string
+
+const (
+	ReverseProxyModeHTTP ReverseProxyMode = "http"
+	ReverseProxyModeTCP  ReverseProxyMode = "tcp"
+	ReverseProxyModeTLS  ReverseProxyMode = "tls"
+	ReverseProxyModeUDP  ReverseProxyMode = "udp"
+)
+
 // AccessRestrictions are connection-level restrictions based on IP address or
 // geography, applied to the reverse-proxy service.
 type AccessRestrictions struct {
@@ -75,11 +90,27 @@ type ReverseProxyBackend struct {
 // NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
 // targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
+// +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || !has(self.mode) || self.mode == 'http'",message="private requires mode http (the NetBird API only supports the auto-ACL on HTTP services)"
+// +kubebuilder:validation:XValidation:rule="!has(self.listenPort) || (has(self.mode) && self.mode != 'http')",message="listenPort only applies to L4 modes (tcp/tls/udp)"
 type ReverseProxyServiceSpec struct {
 	// Backends are the LoadBalancer Services this service proxies to, by path.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	Backends []ReverseProxyBackend `json:"backends"`
+
+	// Mode selects the proxy mode. "http" (default) is an L7 reverse proxy;
+	// "tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports
+	// under one hostname with one CR per port (same Domain, distinct ListenPort).
+	// +optional
+	// +kubebuilder:default=http
+	Mode ReverseProxyMode `json:"mode,omitempty"`
+
+	// ListenPort is the port the proxy listens on (L4 modes only — tcp/tls/udp).
+	// 0 (or unset) lets NetBird auto-assign. Ignored for mode=http.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65535
+	ListenPort *int `json:"listenPort,omitempty"`
 
 	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
 	// serves this service, e.g. "gate.example.com". The operator resolves it to

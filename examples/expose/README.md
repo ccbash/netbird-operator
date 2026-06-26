@@ -49,3 +49,32 @@ kubectl apply -f ./examples/expose/nginx.yaml
 * `ReverseProxyService` targets each backend Service's **dualstack DNS name**
   (`<svc>-<ns>.<zone>`), so IPv4/IPv6 is transparent. `private: true` makes the
   exposure NetBird-only instead of public.
+
+## Non-HTTP backends (L4)
+
+`mode: http` (the default) is an L7 reverse proxy. For non-HTTP backends —
+mail (SMTP/IMAP/ManageSieve), databases, anything raw — use an L4 mode
+(`tcp`/`tls`/`udp`) with an explicit `listenPort`; the proxy passes the
+connection through and the backend terminates its own TLS.
+
+A NetBird service has one `domain` and one `listenPort`, so to publish several
+ports under **one hostname** write **one `ReverseProxyService` per port**, all
+sharing the same `domain` and `proxyCluster` with distinct `listenPort`s:
+
+```yaml
+apiVersion: netbird.io/v1alpha1
+kind: ReverseProxyService
+metadata: { name: mail-smtps, namespace: mail }
+spec:
+  mode: tcp
+  listenPort: 465
+  domain: mail.example.com
+  proxyCluster: gate.example.com
+  backends:
+    - serviceRef: { name: mail }
+      port: 465
+```
+
+`private: true` and `accessGroups` are HTTP-only (the NetBird auto-ACL requires
+`mode=http`). Gate L4 access with `accessRestrictions` (CIDR/geo) — e.g. limit
+`allowedCidrs` to the NetBird range to keep an L4 service mesh-only.

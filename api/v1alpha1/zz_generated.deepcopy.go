@@ -949,6 +949,11 @@ func (in *ReverseProxyServiceSpec) DeepCopyInto(out *ReverseProxyServiceSpec) {
 		*out = make([]ReverseProxyBackend, len(*in))
 		copy(*out, *in)
 	}
+	if in.ListenPort != nil {
+		in, out := &in.ListenPort, &out.ListenPort
+		*out = new(int)
+		**out = **in
+	}
 	if in.Private != nil {
 		in, out := &in.Private, &out.Private
 		*out = new(bool)

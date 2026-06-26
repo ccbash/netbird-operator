@@ -19,6 +19,13 @@ import (
 type ReverseProxyServiceSpecApplyConfiguration struct {
 	// Backends are the LoadBalancer Services this service proxies to, by path.
 	Backends []ReverseProxyBackendApplyConfiguration `json:"backends,omitempty"`
+	// Mode selects the proxy mode. "http" (default) is an L7 reverse proxy;
+	// "tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports
+	// under one hostname with one CR per port (same Domain, distinct ListenPort).
+	Mode *apiv1alpha1.ReverseProxyMode `json:"mode,omitempty"`
+	// ListenPort is the port the proxy listens on (L4 modes only — tcp/tls/udp).
+	// 0 (or unset) lets NetBird auto-assign. Ignored for mode=http.
+	ListenPort *int `json:"listenPort,omitempty"`
 	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
 	// serves this service, e.g. "gate.example.com". The operator resolves it to
 	// a proxy-cluster ID and points the service's targets at it.
@@ -60,6 +67,22 @@ func (b *ReverseProxyServiceSpecApplyConfiguration) WithBackends(values ...*Reve
 		}
 		b.Backends = append(b.Backends, *values[i])
 	}
+	return b
+}
+
+// WithMode sets the Mode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Mode field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithMode(value apiv1alpha1.ReverseProxyMode) *ReverseProxyServiceSpecApplyConfiguration {
+	b.Mode = &value
+	return b
+}
+
+// WithListenPort sets the ListenPort field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ListenPort field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithListenPort(value int) *ReverseProxyServiceSpecApplyConfiguration {
+	b.ListenPort = &value
 	return b
 }
 

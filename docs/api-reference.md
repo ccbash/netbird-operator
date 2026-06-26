@@ -608,6 +608,30 @@ _Appears in:_
 | `path` _string_ | Path is the URL path prefix this backend serves (HTTP). Defaults to "/". |  | Optional: \{\} <br /> |
 
 
+#### ReverseProxyMode
+
+_Underlying type:_ _string_
+
+ReverseProxyMode selects the proxy mode. "http" is an L7 reverse proxy
+(path-based routing, TLS terminated at the edge). "tcp"/"tls"/"udp" are L4
+passthrough on a fixed ListenPort — used for non-HTTP backends such as mail
+(SMTP/IMAP/ManageSieve), where the backend terminates TLS itself. Maps to the
+NetBird API ServiceRequest.mode.
+
+_Validation:_
+- Enum: [http tcp tls udp]
+
+_Appears in:_
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
+
+| Field | Description |
+| --- | --- |
+| `http` |  |
+| `tcp` |  |
+| `tls` |  |
+| `udp` |  |
+
+
 #### ReverseProxyService
 
 
@@ -649,6 +673,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `backends` _[ReverseProxyBackend](#reverseproxybackend) array_ | Backends are the LoadBalancer Services this service proxies to, by path. |  | MaxItems: 64 <br />MinItems: 1 <br /> |
+| `mode` _[ReverseProxyMode](#reverseproxymode)_ | Mode selects the proxy mode. "http" (default) is an L7 reverse proxy;<br />"tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports<br />under one hostname with one CR per port (same Domain, distinct ListenPort). | http | Enum: [http tcp tls udp] <br />Optional: \{\} <br /> |
+| `listenPort` _integer_ | ListenPort is the port the proxy listens on (L4 modes only — tcp/tls/udp).<br />0 (or unset) lets NetBird auto-assign. Ignored for mode=http. |  | Maximum: 65535 <br />Minimum: 0 <br />Optional: \{\} <br /> |
 | `proxyCluster` _string_ | ProxyCluster is the address of the NetBird reverse-proxy cluster that<br />serves this service, e.g. "gate.example.com". The operator resolves it to<br />a proxy-cluster ID and points the service's targets at it. |  | MinLength: 1 <br /> |
 | `domain` _string_ | Domain is the hostname the service is published under. |  | MinLength: 1 <br /> |
 | `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. |  | Optional: \{\} <br /> |

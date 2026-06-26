@@ -50,6 +50,9 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 		return err
 	}
 
+	mode, proto := serviceMode(rps.Spec.Mode)
+	isHTTP := mode == api.ServiceRequestModeHttp
+
 	targets := make([]api.ServiceTarget, 0, len(rps.Spec.Backends))
 	for _, b := range rps.Spec.Backends {
 		fqdn, err := backendFQDN(ctx, c, rps.Namespace, b.ServiceRef.Name)
@@ -66,14 +69,15 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 			Enabled:    true,
 			Host:       &host,
 			Port:       port,
-			Protocol:   api.ServiceTargetProtocolHttp,
+			Protocol:   proto,
 			TargetType: api.ServiceTargetTargetTypeCluster,
 			// A cluster target references the cluster's CNAME address (e.g.
 			// gate.example.com), not cluster.Id which is a single proxy node.
 			TargetId: cluster.Address,
 			Options:  &api.ServiceTargetOptions{DirectUpstream: &direct},
 		}
-		if b.Path != "" {
+		// Path is HTTP-only; L4 targets route by listen port, not URL path.
+		if isHTTP && b.Path != "" {
 			path := b.Path
 			target.Path = &path
 		}
@@ -81,25 +85,33 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	}
 	sortServiceTargets(targets)
 
-	accessGroups, err := netbirdutil.GetGroupIDs(ctx, c, nb, rps.Spec.AccessGroups, rps.Namespace)
-	if err != nil {
-		return err
-	}
-
-	mode := api.ServiceRequestModeHttp
 	req := api.ServiceRequest{
 		Domain:           rps.Spec.Domain,
 		Enabled:          true,
 		Mode:             &mode,
 		Name:             rps.Name,
 		Targets:          &targets,
-		Private:          rps.Spec.Private,
 		PassHostHeader:   rps.Spec.PassHostHeader,
 		RewriteRedirects: rps.Spec.RewriteRedirects,
 	}
-	if len(accessGroups) > 0 {
-		req.AccessGroups = &accessGroups
+
+	// Private + the access-group auto-ACL is an HTTP-only NetBird feature
+	// (ServiceRequest.private requires mode=http). For L4 modes access is
+	// governed by AccessRestrictions / proxy-cluster reachability, and the
+	// public listen port is set explicitly.
+	if isHTTP {
+		accessGroups, err := netbirdutil.GetGroupIDs(ctx, c, nb, rps.Spec.AccessGroups, rps.Namespace)
+		if err != nil {
+			return err
+		}
+		req.Private = rps.Spec.Private
+		if len(accessGroups) > 0 {
+			req.AccessGroups = &accessGroups
+		}
+	} else if rps.Spec.ListenPort != nil {
+		req.ListenPort = rps.Spec.ListenPort
 	}
+
 	if ar := accessRestrictionsFor(rps.Spec.CrowdsecMode, rps.Spec.AccessRestrictions); ar != nil {
 		req.AccessRestrictions = ar
 	}
@@ -174,6 +186,23 @@ func sortServiceTargets(targets []api.ServiceTarget) {
 		}
 		return targets[i].Port < targets[j].Port
 	})
+}
+
+// serviceMode maps the CRD's mode onto the NetBird API request mode and the
+// protocol used to reach the backend. An empty mode defaults to HTTP, so
+// existing HTTP services keep their behavior unchanged. TLS mode terminates at
+// the proxy and reaches the backend over plain TCP.
+func serviceMode(m nbv1alpha1.ReverseProxyMode) (api.ServiceRequestMode, api.ServiceTargetProtocol) {
+	switch m {
+	case nbv1alpha1.ReverseProxyModeTCP:
+		return api.ServiceRequestModeTcp, api.ServiceTargetProtocolTcp
+	case nbv1alpha1.ReverseProxyModeTLS:
+		return api.ServiceRequestModeTls, api.ServiceTargetProtocolTcp
+	case nbv1alpha1.ReverseProxyModeUDP:
+		return api.ServiceRequestModeUdp, api.ServiceTargetProtocolUdp
+	default:
+		return api.ServiceRequestModeHttp, api.ServiceTargetProtocolHttp
+	}
 }
 
 // accessRestrictionsFor maps the CRD's restriction fields onto the NetBird API

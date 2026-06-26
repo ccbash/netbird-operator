@@ -276,6 +276,46 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(target.Options.DirectUpstream).NotTo(BeNil())
 			Expect(*target.Options.DirectUpstream).To(BeTrue())
 		})
+
+		It("exposes an L4 (tcp) service on a fixed listen port", func() {
+			readyNetwork()
+			readyZone("kube.example.com")
+			lbService("mail", "192.0.2.20")
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}, "mail")
+			Expect(err).NotTo(HaveOccurred())
+
+			controls.AddProxyCluster("cluster-1", "gate.test")
+
+			listen := 25
+			rps := &nbv1alpha1.ReverseProxyService{
+				ObjectMeta: metav1.ObjectMeta{Name: "mail-smtp", Namespace: ns},
+				Spec: nbv1alpha1.ReverseProxyServiceSpec{
+					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "mail"}, Port: 25, Path: "/"}},
+					ProxyCluster: "gate.test",
+					Domain:       "mail.example.com",
+					Mode:         nbv1alpha1.ReverseProxyModeTCP,
+					ListenPort:   &listen,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
+			_, err = reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), "mail-smtp")
+			Expect(err).NotTo(HaveOccurred())
+
+			services, err := nbClient.ReverseProxyServices.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(services).To(HaveLen(1))
+			svc := services[0]
+			Expect(svc.Domain).To(Equal("mail.example.com"))
+			Expect(svc.Mode).NotTo(BeNil())
+			Expect(*svc.Mode).To(Equal(api.ServiceMode(api.ServiceRequestModeTcp)))
+			Expect(svc.ListenPort).NotTo(BeNil())
+			Expect(*svc.ListenPort).To(Equal(25))
+			Expect(svc.Targets).To(HaveLen(1))
+			target := svc.Targets[0]
+			Expect(target.Protocol).To(Equal(api.ServiceTargetProtocolTcp))
+			Expect(target.Port).To(Equal(25))
+			Expect(target.Path).To(BeNil()) // path is HTTP-only
+		})
 	})
 
 	Describe("out-of-band deletion recovery", func() {
