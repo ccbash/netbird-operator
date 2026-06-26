@@ -63,7 +63,7 @@ spec:
   proxyProtocol: true              # backend sees the real client IP (needs backend support)
   backends:
     - serviceRef: { name: mail }
-      port: 25                     # required: the backend Service has >1 port
+      port: 25                     # set it: backend has >1 port (unset → first port)
 ---
 # Submissions (implicit-TLS SMTP).
 apiVersion: netbird.io/v1alpha1

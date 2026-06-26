@@ -30,13 +30,6 @@ import (
 // erroring every reconcile.
 var errDependencyNotReady = errors.New("dependency not ready")
 
-// errInvalidSpec marks a terminal configuration error: the object's spec (or a
-// referenced object) is wrong in a way reconciling won't fix. The mirror
-// reconciler surfaces it as a non-Ready condition + a Warning event and stops
-// retrying tightly, instead of returning a hard error that logs a stacktrace
-// every reconcile. A spec change re-triggers reconciliation via the watch.
-var errInvalidSpec = errors.New("invalid spec")
-
 // mirrorObject is a NetBird-mirror CRD: a client.Object that carries status
 // conditions.
 type mirrorObject interface {
@@ -93,19 +86,6 @@ func (r *MirrorReconciler[T]) Reconcile(ctx context.Context, req ctrl.Request) (
 				return ctrl.Result{}, perr
 			}
 			return ctrl.Result{RequeueAfter: dependencyRetry}, nil
-		}
-		if errors.Is(err, errInvalidSpec) {
-			// A spec/config error won't self-heal by retrying — surface it on the
-			// object and stop tight-looping (no returned error, so no stacktrace).
-			// A spec edit re-triggers via the watch; the periodic resync catches
-			// fixes to referenced objects.
-			logf.FromContext(ctx).Info("invalid spec", "error", err.Error())
-			conditions.MarkFalse(obj, nbv1alpha1.ReadyCondition, nbv1alpha1.InvalidSpecReason, "%s", err.Error())
-			recordEvent(r.Recorder, obj, reasonInvalidSpec, "%s", err.Error())
-			if perr := sp.Patch(ctx, obj); perr != nil {
-				return ctrl.Result{}, perr
-			}
-			return ctrl.Result{RequeueAfter: resyncInterval}, nil
 		}
 		return ctrl.Result{}, err
 	}

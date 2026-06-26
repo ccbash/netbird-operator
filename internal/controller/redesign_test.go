@@ -366,61 +366,50 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(domains).To(ConsistOf("tcp-25.mail.example.com", "tcp-465.mail.example.com"))
 		})
 
-		It("requires an explicit backend port for a multi-port backend", func() {
+		It("defaults to the backend Service's first port when none is given", func() {
 			readyNetwork()
 			readyZone("kube.example.com")
 
-			// A mail-style LoadBalancer Service exposing several ports under one
-			// IP/name; the LoadBalancer controller advertises it (one DNSRecord).
+			// A multi-port LoadBalancer Service (http first); the LoadBalancer
+			// controller advertises it.
 			svc := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:        "mail",
+					Name:        "app",
 					Namespace:   ns,
 					Annotations: map[string]string{networkAnnotation: ns, zoneAnnotation: ns},
 				},
 				Spec: corev1.ServiceSpec{
 					Type:  corev1.ServiceTypeLoadBalancer,
-					Ports: []corev1.ServicePort{{Name: "smtp", Port: 25}, {Name: "imaps", Port: 993}},
+					Ports: []corev1.ServicePort{{Name: "http", Port: 80}, {Name: "https", Port: 443}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, svc)).To(Succeed())
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
 			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.21"}}
 			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
-			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}, "mail")
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true}, "app")
 			Expect(err).NotTo(HaveOccurred())
 
 			controls.AddProxyCluster("cluster-1", "gate.test")
 
-			listen := 25
 			rps := &nbv1alpha1.ReverseProxyService{
-				ObjectMeta: metav1.ObjectMeta{Name: "mail-smtp", Namespace: ns},
+				ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: ns},
 				Spec: nbv1alpha1.ReverseProxyServiceSpec{
-					// Port omitted on purpose — ambiguous against a multi-port backend.
-					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "mail"}}},
+					// Port omitted — defaults to the Service's first port (80).
+					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "app"}, Path: "/"}},
 					ProxyCluster: "gate.test",
-					Domain:       "mail.example.com",
-					Mode:         nbv1alpha1.ReverseProxyModeTCP,
-					ListenPort:   &listen,
+					Domain:       "app.example.com",
 				},
 			}
 			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
-			_, err = reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), "mail-smtp")
-			// A spec error is surfaced as a not-Ready condition, not a hard error
-			// (no requeue storm / stacktrace).
+			_, err = reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), "app")
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rps), rps)).To(Succeed())
-			cond := meta.FindStatusCondition(rps.Status.Conditions, nbv1alpha1.ReadyCondition)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			Expect(cond.Reason).To(Equal(nbv1alpha1.InvalidSpecReason))
-			Expect(cond.Message).To(ContainSubstring("set backends[].port explicitly"))
-
-			// Nothing was created in NetBird.
 			services, err := nbClient.ReverseProxyServices.List(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(services).To(BeEmpty())
+			Expect(services).To(HaveLen(1))
+			Expect(services[0].Targets).To(HaveLen(1))
+			Expect(services[0].Targets[0].Port).To(Equal(80)) // first port
 		})
 	})
 

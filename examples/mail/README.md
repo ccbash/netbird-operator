@@ -54,9 +54,9 @@ NAME:.metadata.name,HOST:.spec.domain,SERVICE_DOMAIN:.status.serviceDomain,READY
   address, a subdomain of it, or a registered NetBird custom domain pointing at
   it — and have **public DNS** (A/AAAA, plus the `MX` for inbound mail) pointing
   at the cluster ingress.
-- **`backends[].port` is required** here: the backend Service has more than one
-  port, so the operator will not guess (it would otherwise target the first
-  port).
+- **Set `backends[].port`** here: the backend Service has more than one port and
+  an unset port defaults to the Service's *first* port — wrong for all but one of
+  the mail ports. (Single-port backends can omit it.)
 - **Use `mode: tcp`** (passthrough) even for implicit-TLS ports like `465`/`993`
   — the mail server terminates TLS itself, so its cert must be issued for
   `mail.example.com`. `mode: tls` is SNI-terminated at the proxy and so cannot

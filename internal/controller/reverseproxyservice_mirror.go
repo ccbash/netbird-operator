@@ -176,10 +176,10 @@ func backendFQDN(ctx context.Context, c client.Client, namespace, svcName string
 	return records.Items[0].Spec.Name, nil
 }
 
-// backendPort returns want, or the Service's only port when want is 0. The
-// implicit default is taken only when it is unambiguous: a multi-port backend
-// (e.g. a mail Service exposing 25/465/587/993) requires an explicit
-// backends[].port, otherwise every CR would silently target the first port.
+// backendPort returns want, or the Service's first port when want is 0. A
+// multi-port backend defaults to the first port (usually the right one for an
+// HTTP face) — set backends[].port to target a specific one, which you'll
+// normally want for L4 services fanning several ports out across CRs.
 func backendPort(ctx context.Context, c client.Client, namespace, svcName string, want int) (int, error) {
 	if want != 0 {
 		return want, nil
@@ -188,14 +188,10 @@ func backendPort(ctx context.Context, c client.Client, namespace, svcName string
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc); err != nil {
 		return 0, err
 	}
-	switch len(svc.Spec.Ports) {
-	case 0:
+	if len(svc.Spec.Ports) == 0 {
 		return 0, fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
-	case 1:
-		return int(svc.Spec.Ports[0].Port), nil
-	default:
-		return 0, fmt.Errorf("%w: service %s/%s exposes %d ports; set backends[].port explicitly", errInvalidSpec, namespace, svcName, len(svc.Spec.Ports))
 	}
+	return int(svc.Spec.Ports[0].Port), nil
 }
 
 // sortServiceTargets orders targets deterministically so an unchanged reconcile
