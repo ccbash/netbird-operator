@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -62,11 +63,7 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	targets := make([]api.ServiceTarget, 0, len(rps.Spec.Backends))
 	portLabel := "" // backend port name (or number) for the L4 per-port domain
 	for i, b := range rps.Spec.Backends {
-		fqdn, err := backendFQDN(ctx, c, rps.Namespace, b.ServiceRef.Name)
-		if err != nil {
-			return err
-		}
-		port, name, err := backendPort(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
+		host, port, name, err := resolveBackend(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
 		if err != nil {
 			return err
 		}
@@ -77,7 +74,6 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 				portLabel = strconv.Itoa(port)
 			}
 		}
-		host := fqdn
 		direct := true
 		opts := &api.ServiceTargetOptions{DirectUpstream: &direct}
 		// Mirror the CRD's proxyProtocol verbatim onto every target so the
@@ -191,29 +187,46 @@ func backendFQDN(ctx context.Context, c client.Client, namespace, svcName string
 	return records.Items[0].Spec.Name, nil
 }
 
-// backendPort returns the backend port to dial and its Service-port name. want
-// (backends[].port) wins; 0 falls back to the Service's first port. A multi-port
-// backend thus defaults to the first port (usually the right one for an HTTP
-// face) — set backends[].port for a specific one, which you'll normally want for
-// L4 services fanning several ports out across CRs. The name ("" if the port is
-// unnamed or want isn't a Service port) labels L4 per-port domains.
-func backendPort(ctx context.Context, c client.Client, namespace, svcName string, want int) (int, string, error) {
+// resolveBackend resolves a backend Service to the host the proxy dials, the
+// port, and that port's name. The host depends on the Service type: a
+// type=LoadBalancer Service uses its advertised dualstack mesh FQDN (over the
+// NetBird overlay); any other Service (ClusterIP) is reached directly at its
+// in-cluster DNS name — the drop-in path for backends fronted by an in-cluster
+// proxy. want (backends[].port) wins; 0 falls back to the Service's first port,
+// so a multi-port backend defaults to the first port. The port name is "" when
+// the port is unnamed or want isn't a Service port.
+func resolveBackend(ctx context.Context, c client.Client, namespace, svcName string, want int) (host string, port int, portName string, err error) {
 	svc := &corev1.Service{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc); err != nil {
-		return 0, "", err
+		if kerrors.IsNotFound(err) {
+			return "", 0, "", fmt.Errorf("%w: Service %s/%s not found", errDependencyNotReady, namespace, svcName)
+		}
+		return "", 0, "", err
 	}
 	if len(svc.Spec.Ports) == 0 {
-		return 0, "", fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
+		return "", 0, "", fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
 	}
-	if want == 0 {
-		return int(svc.Spec.Ports[0].Port), svc.Spec.Ports[0].Name, nil
-	}
-	for _, p := range svc.Spec.Ports {
-		if int(p.Port) == want {
-			return want, p.Name, nil
+
+	p := svc.Spec.Ports[0]
+	if want != 0 {
+		p = corev1.ServicePort{Port: int32(want)} // unmatched explicit port: no name
+		for _, sp := range svc.Spec.Ports {
+			if int(sp.Port) == want {
+				p = sp
+				break
+			}
 		}
 	}
-	return want, "", nil
+
+	if svc.Spec.Type == corev1.ServiceTypeLoadBalancer {
+		host, err = backendFQDN(ctx, c, namespace, svcName)
+		if err != nil {
+			return "", 0, "", err
+		}
+	} else {
+		host = fmt.Sprintf("%s.%s.svc.cluster.local", svcName, namespace)
+	}
+	return host, int(p.Port), p.Name, nil
 }
 
 // sortServiceTargets orders targets deterministically so an unchanged reconcile

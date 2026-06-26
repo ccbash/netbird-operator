@@ -426,6 +426,41 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(services[0].Targets).To(HaveLen(1))
 			Expect(services[0].Targets[0].Port).To(Equal(80)) // first port
 		})
+
+		It("targets a ClusterIP backend at its in-cluster DNS name", func() {
+			controls.AddProxyCluster("cluster-1", "gate.test")
+
+			// A plain ClusterIP backend (not advertised) — the drop-in path.
+			backend := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "infisical", Namespace: ns},
+				Spec: corev1.ServiceSpec{
+					Type:  corev1.ServiceTypeClusterIP,
+					Ports: []corev1.ServicePort{{Name: "http", Port: 8080}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, backend)).To(Succeed())
+
+			rps := &nbv1alpha1.ReverseProxyService{
+				ObjectMeta: metav1.ObjectMeta{Name: "secrets", Namespace: ns},
+				Spec: nbv1alpha1.ReverseProxyServiceSpec{
+					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "infisical"}, Path: "/"}},
+					ProxyCluster: "gate.test",
+					Domain:       "secrets.ccbash.cloud",
+				},
+			}
+			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
+			_, err := reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), "secrets")
+			Expect(err).NotTo(HaveOccurred())
+
+			services, err := nbClient.ReverseProxyServices.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(services).To(HaveLen(1))
+			Expect(services[0].Targets).To(HaveLen(1))
+			target := services[0].Targets[0]
+			Expect(target.Host).NotTo(BeNil())
+			Expect(*target.Host).To(Equal(fmt.Sprintf("infisical.%s.svc.cluster.local", ns)))
+			Expect(target.Port).To(Equal(8080))
+		})
 	})
 
 	Describe("ReverseProxyCluster", func() {

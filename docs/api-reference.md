@@ -595,9 +595,12 @@ _Appears in:_
 
 
 
-ReverseProxyBackend names a LoadBalancer Service this service proxies to. The
-Service must be advertised (have a DNSRecord); the proxy targets its dualstack
-FQDN, so IPv4/IPv6 is transparent.
+ReverseProxyBackend names a Service this service proxies to. How the proxy
+reaches it depends on the Service type: a type=LoadBalancer Service must be
+advertised (have a DNSRecord) and is targeted by its dualstack mesh FQDN (so
+IPv4/IPv6 is transparent, over the NetBird overlay); any other Service
+(ClusterIP) is reached directly at its in-cluster DNS name — the drop-in path
+for an in-cluster proxy.
 
 
 
@@ -606,7 +609,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef names the LoadBalancer Service to proxy to, in the same<br />namespace as the ReverseProxyService. |  |  |
+| `serviceRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#localobjectreference-v1-core)_ | ServiceRef names the Service to proxy to, in the same namespace as the<br />ReverseProxyService. |  |  |
 | `port` _integer_ | Port the proxy dials on the backend. Defaults to the Service's first port. |  | Optional: \{\} <br /> |
 | `path` _string_ | Path is the URL path prefix this backend serves (HTTP). Defaults to "/". |  | Optional: \{\} <br /> |
 
