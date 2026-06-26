@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 
@@ -47,6 +48,7 @@ func init() {
 
 	kruntimeutil.Must(corev1.AddToScheme(scheme))
 	kruntimeutil.Must(nbv1alpha1.AddToScheme(scheme))
+	kruntimeutil.Must(gwv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -79,6 +81,7 @@ func main() {
 		enableLeaderElection bool
 		probeAddr            string
 		enableWebhooks       bool
+		enableGatewayAPI     bool
 		logLevel             string
 		logFormat            string
 	)
@@ -100,6 +103,8 @@ func main() {
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", true, "If set, enable Mutating and Validating webhooks.")
+	flag.BoolVar(&enableGatewayAPI, "enable-gateway-api", false,
+		"If set, reconcile Gateway API GatewayClass/HTTPRoute objects of the netbird.io/byop-proxy controller (requires the Gateway API CRDs).")
 	flag.Parse()
 
 	zapOpts, err := logging.Options(logLevel, logFormat)
@@ -185,7 +190,7 @@ func main() {
 		}
 	}
 
-	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs, defaultResourceGroups); err != nil {
+	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs, enableGatewayAPI, defaultResourceGroups); err != nil {
 		setupLog.Error(err, "unable to set up controllers")
 		os.Exit(1)
 	}
@@ -221,7 +226,7 @@ func main() {
 
 // setupControllers registers the NetBird controllers that require API access.
 // It is a no-op (with a log line) when no API key is configured.
-func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs bool, defaultResourceGroups string) error {
+func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs, enableGatewayAPI bool, defaultResourceGroups string) error {
 	if len(netbirdAPIKey) == 0 {
 		setupLog.Info("netbird API key not provided, ingress capabilities disabled")
 		return nil
@@ -299,6 +304,20 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 		Recorder:      mgr.GetEventRecorderFor("reverseproxycluster"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup ReverseProxyCluster controller: %w", err)
+	}
+
+	// Gateway API translation onto ReverseProxyService — opt-in, since it needs
+	// the Gateway API CRDs installed.
+	if enableGatewayAPI {
+		if err := (&controller.GatewayClassReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("setup GatewayClass controller: %w", err)
+		}
+		if err := (&controller.HTTPRouteReconciler{
+			Client:   mgr.GetClient(),
+			Recorder: mgr.GetEventRecorderFor("httproute"),
+		}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("setup HTTPRoute controller: %w", err)
+		}
 	}
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -533,6 +534,76 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 		})
 	})
 
+	Describe("Gateway API translation", func() {
+		It("translates an HTTPRoute on a BYOP Gateway into a ReverseProxyService", func() {
+			// A ReverseProxyCluster supplies the cluster address (not reconciled here).
+			rpc := &nbv1alpha1.ReverseProxyCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "gate", Namespace: ns},
+				Spec:       nbv1alpha1.ReverseProxyClusterSpec{ClusterAddress: "gate.ccbash.cloud", Domain: "ccbash.cloud"},
+			}
+			Expect(k8sClient.Create(ctx, rpc)).To(Succeed())
+
+			gc := &gwv1.GatewayClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "netbird-" + ns},
+				Spec: gwv1.GatewayClassSpec{
+					ControllerName: "netbird.io/byop-proxy",
+					ParametersRef: &gwv1.ParametersReference{
+						Group: "netbird.io", Kind: "ReverseProxyCluster",
+						Name: "gate", Namespace: ptrTo(gwv1.Namespace(ns)),
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, gc)).To(Succeed())
+			_, err := reconcileOnce(&GatewayClassReconciler{Client: k8sClient}, gc.Name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gc), gc)).To(Succeed())
+			Expect(meta.IsStatusConditionTrue(gc.Status.Conditions, string(gwv1.GatewayClassConditionStatusAccepted))).To(BeTrue())
+
+			gw := &gwv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: ns},
+				Spec: gwv1.GatewaySpec{
+					GatewayClassName: gwv1.ObjectName(gc.Name),
+					Listeners:        []gwv1.Listener{{Name: "http", Protocol: gwv1.HTTPProtocolType, Port: 80}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, gw)).To(Succeed())
+
+			route := &gwv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{Name: "infisical", Namespace: ns},
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{{Name: gwv1.ObjectName("web")}},
+					},
+					Hostnames: []gwv1.Hostname{"secrets.ccbash.cloud"},
+					Rules: []gwv1.HTTPRouteRule{{
+						BackendRefs: []gwv1.HTTPBackendRef{{BackendRef: gwv1.BackendRef{
+							BackendObjectReference: gwv1.BackendObjectReference{
+								Name: gwv1.ObjectName("infisical"), Port: ptrTo(gwv1.PortNumber(8080)),
+							},
+						}}},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, route)).To(Succeed())
+
+			_, err = reconcileOnce(&HTTPRouteReconciler{Client: k8sClient}, "infisical")
+			Expect(err).NotTo(HaveOccurred())
+
+			rps := &nbv1alpha1.ReverseProxyService{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "infisical-secrets-ccbash-cloud", Namespace: ns}, rps)).To(Succeed())
+			Expect(rps.Spec.Domain).To(Equal("secrets.ccbash.cloud"))
+			Expect(rps.Spec.ProxyCluster).To(Equal("gate.ccbash.cloud"))
+			Expect(rps.Spec.Backends).To(HaveLen(1))
+			Expect(rps.Spec.Backends[0].ServiceRef.Name).To(Equal("infisical"))
+			Expect(rps.Spec.Backends[0].Port).To(Equal(8080))
+
+			// Route reports Accepted on our parent.
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(route), route)).To(Succeed())
+			Expect(route.Status.Parents).To(HaveLen(1))
+			Expect(meta.IsStatusConditionTrue(route.Status.Parents[0].Conditions, string(gwv1.RouteConditionAccepted))).To(BeTrue())
+		})
+	})
+
 	Describe("out-of-band deletion recovery", func() {
 		It("Network recreates when its NetBird network was deleted out of band", func() {
 			network := readyNetwork()
@@ -549,6 +620,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 		})
 	})
 })
+
+// ptrTo returns a pointer to v.
+func ptrTo[T any](v T) *T { return &v }
 
 // envValue returns the literal value of the named env var, or "".
 func envValue(env []corev1.EnvVar, name string) string {

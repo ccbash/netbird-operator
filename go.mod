@@ -18,6 +18,7 @@ require (
 	k8s.io/client-go v0.36.2
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
 	sigs.k8s.io/controller-runtime v0.24.1
+	sigs.k8s.io/gateway-api v1.5.1
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0
 )
 
@@ -36,6 +37,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/elastic/crd-ref-docs v0.3.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
+	github.com/evanphx/json-patch v5.7.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect

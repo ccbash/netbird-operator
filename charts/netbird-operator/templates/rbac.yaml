@@ -81,6 +81,25 @@ rules:
   - list
   - watch
 - apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - gatewayclasses
+  - gateways
+  - httproutes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - gatewayclasses/status
+  - httproutes/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
   - apps
   resources:
   - deployments
