@@ -89,6 +89,7 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 			m := api.ServiceMode(*input.Mode)
 			output.Mode = &m
 		}
+		output.ListenPort = input.ListenPort
 		if input.Targets != nil {
 			output.Targets = *input.Targets
 		}

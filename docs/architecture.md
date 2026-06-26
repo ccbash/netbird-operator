@@ -11,10 +11,11 @@ What changed since v0.11.x is the *translation*: the operator no longer routes
 off **`Service type=LoadBalancer`** addresses and is driven by three CRDs —
 `Network`, `NetworkRouter`, `ReverseProxyService`.
 
-> **Implementation status.** The Layer-1 mirror CRDs and the generic reconciler
-> (`internal/controller/mirror.go`) are implemented. The Layer-2 translation
-> below (LoadBalancer-IP model, no Gateway) **supersedes** the v0.11.x
-> Gateway/ClusterIP translation and is the next thing to build.
+> **Implementation status.** Both layers are implemented: the Layer-1 mirror CRDs
+> and generic reconciler (`internal/controller/mirror.go`) and the Layer-2
+> LoadBalancer-IP translation (`internal/controller/loadbalancer_controller.go`,
+> `reverseproxyservice_mirror.go`), which **supersedes** the v0.11.x
+> Gateway/ClusterIP translation.
 
 ## The model in one line
 

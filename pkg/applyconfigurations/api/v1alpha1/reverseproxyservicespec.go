@@ -19,11 +19,38 @@ import (
 type ReverseProxyServiceSpecApplyConfiguration struct {
 	// Backends are the LoadBalancer Services this service proxies to, by path.
 	Backends []ReverseProxyBackendApplyConfiguration `json:"backends,omitempty"`
+	// Mode selects the proxy mode. "http" (default) is an L7 reverse proxy;
+	// "tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports
+	// under one hostname with one CR per port (same Domain, distinct ListenPort).
+	Mode *apiv1alpha1.ReverseProxyMode `json:"mode,omitempty"`
+	// ListenPort is the public port the proxy listens on. Required for L4 modes
+	// (tcp/tls/udp) — it both fixes the well-known port (e.g. 25/465/993 for
+	// mail) and disambiguates the per-port service domain. Ignored for mode=http.
+	ListenPort *int `json:"listenPort,omitempty"`
+	// ProxyProtocol, when true, makes the proxy prepend a PROXY protocol v2
+	// header to each backend connection so the backend sees the real client IP
+	// and port instead of the proxy's. Applies to tcp/tls modes only (the
+	// NetBird API rejects it elsewhere; HTTP conveys the client IP via
+	// X-Forwarded-For). Required for mail backends that enforce SPF/DNSBL,
+	// greylist, or log the client address — the backend must be configured to
+	// accept PROXY protocol on the listening port.
+	ProxyProtocol *bool `json:"proxyProtocol,omitempty"`
 	// ProxyCluster is the address of the NetBird reverse-proxy cluster that
 	// serves this service, e.g. "gate.example.com". The operator resolves it to
 	// a proxy-cluster ID and points the service's targets at it.
 	ProxyCluster *string `json:"proxyCluster,omitempty"`
-	// Domain is the hostname the service is published under.
+	// Domain is the public hostname clients connect to. For mode=http/tls it is
+	// the service domain verbatim (HTTP routing / TLS SNI). For mode=tcp/udp it
+	// is the shared host: NetBird allows only one service per domain, and L4
+	// connections route by listen port (no SNI), so the operator publishes each
+	// port under a distinct per-port sibling subdomain
+	// <first-label>-<portName>.<parent> — e.g. mail.example.com + the backend's
+	// "smtp" port becomes mail-smtp.example.com (the backend Service port's name,
+	// or its number when unnamed; shown in status.serviceDomain). Expose several
+	// L4 ports under one hostname with one CR per port, all sharing this Domain.
+	// For tcp/udp the registered NetBird custom domain (or cluster address) must
+	// be the PARENT (e.g. example.com), since the per-port siblings derive the
+	// cluster through it; public DNS for the host points at the cluster ingress.
 	Domain *string `json:"domain,omitempty"`
 	// Private, when true, makes the service NetBird-only: inbound peers
 	// authenticate via their tunnel identity (no OIDC) and an ACL policy is
@@ -60,6 +87,30 @@ func (b *ReverseProxyServiceSpecApplyConfiguration) WithBackends(values ...*Reve
 		}
 		b.Backends = append(b.Backends, *values[i])
 	}
+	return b
+}
+
+// WithMode sets the Mode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Mode field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithMode(value apiv1alpha1.ReverseProxyMode) *ReverseProxyServiceSpecApplyConfiguration {
+	b.Mode = &value
+	return b
+}
+
+// WithListenPort sets the ListenPort field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ListenPort field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithListenPort(value int) *ReverseProxyServiceSpecApplyConfiguration {
+	b.ListenPort = &value
+	return b
+}
+
+// WithProxyProtocol sets the ProxyProtocol field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ProxyProtocol field is set to the value of the last call.
+func (b *ReverseProxyServiceSpecApplyConfiguration) WithProxyProtocol(value bool) *ReverseProxyServiceSpecApplyConfiguration {
+	b.ProxyProtocol = &value
 	return b
 }
 

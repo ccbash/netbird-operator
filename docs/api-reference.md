@@ -608,6 +608,30 @@ _Appears in:_
 | `path` _string_ | Path is the URL path prefix this backend serves (HTTP). Defaults to "/". |  | Optional: \{\} <br /> |
 
 
+#### ReverseProxyMode
+
+_Underlying type:_ _string_
+
+ReverseProxyMode selects the proxy mode. "http" is an L7 reverse proxy
+(path-based routing, TLS terminated at the edge). "tcp"/"tls"/"udp" are L4
+passthrough on a fixed ListenPort — used for non-HTTP backends such as mail
+(SMTP/IMAP/ManageSieve), where the backend terminates TLS itself. Maps to the
+NetBird API ServiceRequest.mode.
+
+_Validation:_
+- Enum: [http tcp tls udp]
+
+_Appears in:_
+- [ReverseProxyServiceSpec](#reverseproxyservicespec)
+
+| Field | Description |
+| --- | --- |
+| `http` |  |
+| `tcp` |  |
+| `tls` |  |
+| `udp` |  |
+
+
 #### ReverseProxyService
 
 
@@ -649,8 +673,11 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `backends` _[ReverseProxyBackend](#reverseproxybackend) array_ | Backends are the LoadBalancer Services this service proxies to, by path. |  | MaxItems: 64 <br />MinItems: 1 <br /> |
+| `mode` _[ReverseProxyMode](#reverseproxymode)_ | Mode selects the proxy mode. "http" (default) is an L7 reverse proxy;<br />"tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports<br />under one hostname with one CR per port (same Domain, distinct ListenPort). | http | Enum: [http tcp tls udp] <br />Optional: \{\} <br /> |
+| `listenPort` _integer_ | ListenPort is the public port the proxy listens on. Required for L4 modes<br />(tcp/tls/udp) — it both fixes the well-known port (e.g. 25/465/993 for<br />mail) and disambiguates the per-port service domain. Ignored for mode=http. |  | Maximum: 65535 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `proxyProtocol` _boolean_ | ProxyProtocol, when true, makes the proxy prepend a PROXY protocol v2<br />header to each backend connection so the backend sees the real client IP<br />and port instead of the proxy's. Applies to tcp/tls modes only (the<br />NetBird API rejects it elsewhere; HTTP conveys the client IP via<br />X-Forwarded-For). Required for mail backends that enforce SPF/DNSBL,<br />greylist, or log the client address — the backend must be configured to<br />accept PROXY protocol on the listening port. |  | Optional: \{\} <br /> |
 | `proxyCluster` _string_ | ProxyCluster is the address of the NetBird reverse-proxy cluster that<br />serves this service, e.g. "gate.example.com". The operator resolves it to<br />a proxy-cluster ID and points the service's targets at it. |  | MinLength: 1 <br /> |
-| `domain` _string_ | Domain is the hostname the service is published under. |  | MinLength: 1 <br /> |
+| `domain` _string_ | Domain is the public hostname clients connect to. For mode=http/tls it is<br />the service domain verbatim (HTTP routing / TLS SNI). For mode=tcp/udp it<br />is the shared host: NetBird allows only one service per domain, and L4<br />connections route by listen port (no SNI), so the operator publishes each<br />port under a distinct per-port sibling subdomain<br /><first-label>-<portName>.<parent> — e.g. mail.example.com + the backend's<br />"smtp" port becomes mail-smtp.example.com (the backend Service port's name,<br />or its number when unnamed; shown in status.serviceDomain). Expose several<br />L4 ports under one hostname with one CR per port, all sharing this Domain.<br />For tcp/udp the registered NetBird custom domain (or cluster address) must<br />be the PARENT (e.g. example.com), since the per-port siblings derive the<br />cluster through it; public DNS for the host points at the cluster ingress. |  | MinLength: 1 <br /> |
 | `private` _boolean_ | Private, when true, makes the service NetBird-only: inbound peers<br />authenticate via their tunnel identity (no OIDC) and an ACL policy is<br />auto-generated from AccessGroups. |  | Optional: \{\} <br /> |
 | `accessGroups` _[GroupReference](#groupreference) array_ | AccessGroups are the NetBird groups whose peers may reach a private<br />service over the tunnel. Required when Private is true; ignored otherwise. |  | Optional: \{\} <br /> |
 | `crowdsecMode` _[CrowdsecMode](#crowdsecmode)_ | CrowdsecMode sets the CrowdSec IP-reputation handling for the service. |  | Enum: [off observe enforce] <br />Optional: \{\} <br /> |
@@ -675,6 +702,7 @@ _Appears in:_
 | `observedGeneration` _integer_ | ObservedGeneration is the last reconciled generation. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#condition-v1-meta) array_ | Conditions holds the conditions for the ReverseProxyService. |  | Optional: \{\} <br /> |
 | `serviceID` _string_ | ServiceID is the id of the created NetBird reverse-proxy service. |  | Optional: \{\} <br /> |
+| `serviceDomain` _string_ | ServiceDomain is the domain actually registered with NetBird. It equals<br />spec.domain for http/tls, and the synthesized per-port sibling subdomain<br />(<first-label>-<portName>.<parent>, e.g. mail-smtp.example.com) for tcp/udp. |  | Optional: \{\} <br /> |
 
 
 #### RouterDeploy

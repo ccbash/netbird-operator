@@ -35,3 +35,14 @@ updates:
       gomod-e2e:
         patterns:
           - "*"
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 15
+    labels:
+      - "changelog/dependencies"
+    groups:
+      docker:
+        patterns:
+          - "*"

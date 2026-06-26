@@ -1,0 +1,114 @@
+# A mail server (SMTP/IMAP/ManageSieve) published over NetBird under ONE
+# hostname (mail.example.com) on several TCP ports. Prerequisites: the Network,
+# NetworkRouter and DNSZone from ../expose, a reverse-proxy cluster that allows
+# custom ports, and public DNS for mail.example.com pointing at that cluster.
+# Replace mail.example.com / gate.example.com and the image with your own.
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mail
+  namespace: mail
+spec:
+  replicas: 1
+  serviceName: mail
+  selector:
+    matchLabels: { app: mail }
+  template:
+    metadata:
+      labels: { app: mail }
+    spec:
+      containers:
+        - name: mail
+          image: docker.io/stalwartlabs/stalwart:latest   # or any SMTP/IMAP server
+          ports:
+            - { name: smtp,  containerPort: 25 }
+            - { name: smtps, containerPort: 465 }
+            - { name: imaps, containerPort: 993 }
+            - { name: sieve, containerPort: 4190 }
+---
+# One LoadBalancer Service carries every mail port → one ingress IP, advertised
+# into the mesh as one dualstack name (mail-mail.<zone>). NetBird peers can reach
+# all ports on that name directly; external clients go through the proxy below.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail
+  namespace: mail
+spec:
+  type: LoadBalancer
+  ipFamilyPolicy: PreferDualStack
+  selector: { app: mail }
+  ports:
+    - { name: smtp,  port: 25,   targetPort: smtp }
+    - { name: smtps, port: 465,  targetPort: smtps }
+    - { name: imaps, port: 993,  targetPort: imaps }
+    - { name: sieve, port: 4190, targetPort: sieve }
+---
+# SMTP — L4 (tcp) passthrough. The mail server terminates its own TLS.
+# NetBird allows one service per domain and L4 routes by listen port (no SNI),
+# so each port is a separate CR sharing domain mail.example.com; the operator
+# registers each as tcp-<port>.mail.example.com (see status.serviceDomain) while
+# clients keep using mail.example.com:<port>.
+apiVersion: netbird.io/v1alpha1
+kind: ReverseProxyService
+metadata:
+  name: mail-smtp
+  namespace: mail
+spec:
+  mode:         tcp
+  listenPort:   25                 # required for L4; the public port
+  domain:       mail.example.com    # shared public host
+  proxyCluster: gate.example.com
+  proxyProtocol: true              # backend sees the real client IP (needs backend support)
+  backends:
+    - serviceRef: { name: mail }
+      port: 25                     # set it: backend has >1 port (unset → first port)
+---
+# Submissions (implicit-TLS SMTP).
+apiVersion: netbird.io/v1alpha1
+kind: ReverseProxyService
+metadata:
+  name: mail-submissions
+  namespace: mail
+spec:
+  mode:         tcp
+  listenPort:   465
+  domain:       mail.example.com
+  proxyCluster: gate.example.com
+  proxyProtocol: true
+  backends:
+    - serviceRef: { name: mail }
+      port: 465
+---
+# IMAPS.
+apiVersion: netbird.io/v1alpha1
+kind: ReverseProxyService
+metadata:
+  name: mail-imaps
+  namespace: mail
+spec:
+  mode:         tcp
+  listenPort:   993
+  domain:       mail.example.com
+  proxyCluster: gate.example.com
+  proxyProtocol: true
+  backends:
+    - serviceRef: { name: mail }
+      port: 993
+---
+# ManageSieve.
+apiVersion: netbird.io/v1alpha1
+kind: ReverseProxyService
+metadata:
+  name: mail-managesieve
+  namespace: mail
+spec:
+  mode:         tcp
+  listenPort:   4190
+  domain:       mail.example.com
+  proxyCluster: gate.example.com
+  proxyProtocol: true
+  backends:
+    - serviceRef: { name: mail }
+      port: 4190

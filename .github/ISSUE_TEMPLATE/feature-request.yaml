@@ -1,0 +1,28 @@
+name: Feature Request
+description: Propose a new feature or enhancement.
+type: feature
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is issue-first: open this before sending a PR so we can
+        agree on the approach. Please check existing issues and discussions first.
+  - type: textarea
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what's missing or hard today?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed solution
+      description: What would you like the operator to do?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you've thought about.
+    validations:
+      required: false

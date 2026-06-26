@@ -1,60 +1,79 @@
 # Contributing
 
-This document covers instructions and expectations when contributing to the project.
+Thanks for your interest in contributing! This is a community-maintained,
+**divergent fork** of `netbirdio/kubernetes-operator` (see the README for how it
+differs). Contributions of all kinds are welcome — bug reports, fixes, docs, and
+features.
 
-Questions and feature requests should be discussed in [GitHub Discussions](https://github.com/netbirdio/kubernetes-operator/discussions) while bugs should be reported as an [issue](https://github.com/netbirdio/kubernetes-operator/issues).
+Everyone participating is expected to follow our
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Acceptance Policy
+## Where to start
 
-This project is issue first driven. Meaning that any new PR should be linked to either a bug or feature issue. Any PR that has not been discussed first in an issue or with a maintainer can be closed without reason.
+- **Questions / ideas** — open a [Discussion](https://github.com/ccbash/kubernetes-operator/discussions).
+- **Bugs** — open an [issue](https://github.com/ccbash/kubernetes-operator/issues/new/choose) with the bug template.
+- **Features** — open a feature issue (or a Discussion) first; see the policy below.
+- **Security vulnerabilities** — do **not** open a public issue. Follow the
+  [Security Policy](SECURITY.md).
 
-All PRs are expected to be tested locally before they are submitted. PRs from non maintainers need approval to run GitHub actions meaning that you cannot submit a PR to run tests. If all steps covered in the development section passes then the CI should also pass.
+Good first contributions: improving docs, tightening tests, or fixing an issue
+labelled `good first issue`.
 
-To keep commit history clean, keep PRs to consist of a single commit. Once the PR is ready to review squash the commit history if there are multiple commits.
+## Acceptance policy
+
+This project is **issue-first**: every PR should link to a bug or feature issue.
+A PR that hasn't been discussed in an issue (or with a maintainer) may be closed
+without further reason — please open the issue first so we can agree on the
+approach before you invest time.
+
+- Keep each PR to a **single, focused commit** (squash before review).
+- **Test locally before submitting.** PRs from non-maintainers need maintainer
+  approval to run CI, so a green local run is the fastest path to review.
+- Update docs and tests alongside code.
 
 ## Development
 
-The linter enforces any coding standards that are required.
+The linter is the source of truth for style.
 
 ```bash
-make lint
+make lint        # golangci-lint
+make generate    # regenerate deepcopy, CRDs, applyconfigs, docs/api-reference.md (after api/ changes)
+make test-unit   # unit/integration suite (envtest)
+make test-e2e    # e2e (needs Docker)
 ```
 
-Documentation and CRDs need to be generated after making changes to the API structs.
-
-```bash
-make generate
-```
-
-Unit tests use an in memory Kubernetes cluster to test controller functionality.
-
-```bash
-make test-unit
-```
-
-The e2e tests cover the installation and upgrade steps, along with testing certain functionality.
-
-```bash
-make test-e2e
-```
-
-You can run the operator locally against any cluster that you have access to. Running the operator like this means however that webhooks will not work.
+Run the operator locally against your current kube-context (webhooks disabled):
 
 ```bash
 NB_API_KEY=${API_KEY} make run
 ```
 
+A PR is ready when `lint`, `generate` (no diff), and `test-unit` are green.
+
+## Sign-off and licensing
+
+Contributions are accepted under the project's
+[BSD-3-Clause license](LICENSE) — by contributing, you agree your contribution is
+licensed under the same terms (inbound = outbound). There is **no CLA** and no
+assignment of rights to any company.
+
+We use the [Developer Certificate of Origin](https://developercertificate.org/)
+(DCO): certify that you wrote the change (or have the right to submit it) by
+signing off your commit:
+
+```bash
+git commit -s        # adds a "Signed-off-by: Your Name <you@example.com>" trailer
+```
+
 ## Releases
 
-This project uses semantic versioning for releases. Each new release with new features should receive a new minor version. Release branches are to be able to backport bug fixes and cut patch releases without including new features. This makes the release process stable as it does not force releasing changes that may depend on other systems. Every new minor release tag should be done in a branch with the name format `release/v0.7.x`, any backported changes should be done to this branch and then the commit in the branch should be tagged with a new patch version.
+SemVer. Each release with new features gets a new minor version; minor releases
+are cut on a `release/v0.X.x` branch from `main` so bug fixes can be backported
+and patch releases cut without pulling in new features.
 
-Follow these steps to release a new version.
-
-1. If this is a new minor release create a new release branch from the last commit to the main branch.
-2. Create a [new release](https://github.com/netbirdio/kubernetes-operator/releases/new) in GitHub.
-3. Create a new tag with the version of the release and make sure that the target branch is the release branch.
-4. Set the title of the release to be the same as the release version.
-5. Click the "Generate release notes" button so that release notes are added.
-6. Publish the release.
-
-Once this is done a [release action](https://github.com/netbirdio/kubernetes-operator/blob/main/.github/release.yaml) should be started automatically that publishes a new [operator image](https://github.com/netbirdio/kubernetes-operator/pkgs/container/netbird-operator) and [Helm chart](https://github.com/netbirdio/kubernetes-operator/pkgs/container/helm-charts%2Fnetbird-operator).
+1. For a new minor release, create the release branch from the latest `main`.
+2. Create a [new release](https://github.com/ccbash/kubernetes-operator/releases/new)
+   in GitHub, with a new tag and the **release branch** as the target.
+3. Set the title to the release version and "Generate release notes".
+4. Publish — the [release workflow](.github/workflows/release.yaml) then publishes
+   the operator image and Helm chart to GHCR under `ghcr.io/ccbash`.

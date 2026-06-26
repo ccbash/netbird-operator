@@ -19,6 +19,10 @@ type ReverseProxyServiceStatusApplyConfiguration struct {
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// ServiceID is the id of the created NetBird reverse-proxy service.
 	ServiceID *string `json:"serviceID,omitempty"`
+	// ServiceDomain is the domain actually registered with NetBird. It equals
+	// spec.domain for http/tls, and the synthesized per-port sibling subdomain
+	// (<first-label>-<portName>.<parent>, e.g. mail-smtp.example.com) for tcp/udp.
+	ServiceDomain *string `json:"serviceDomain,omitempty"`
 }
 
 // ReverseProxyServiceStatusApplyConfiguration constructs a declarative configuration of the ReverseProxyServiceStatus type for use with
@@ -53,5 +57,13 @@ func (b *ReverseProxyServiceStatusApplyConfiguration) WithConditions(values ...*
 // If called multiple times, the ServiceID field is set to the value of the last call.
 func (b *ReverseProxyServiceStatusApplyConfiguration) WithServiceID(value string) *ReverseProxyServiceStatusApplyConfiguration {
 	b.ServiceID = &value
+	return b
+}
+
+// WithServiceDomain sets the ServiceDomain field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ServiceDomain field is set to the value of the last call.
+func (b *ReverseProxyServiceStatusApplyConfiguration) WithServiceDomain(value string) *ReverseProxyServiceStatusApplyConfiguration {
+	b.ServiceDomain = &value
 	return b
 }

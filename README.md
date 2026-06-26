@@ -35,13 +35,27 @@ ClusterIPs come from a huge, unpredictably-allocated service CIDR that is
 identical on every default cluster, so routing them across your infrastructure
 invites collisions; an LB CIDR is small, deliberately chosen and collision-free.
 The operator owns only the NetBird overlay and DNS — your existing LB/IPAM
-allocates the addresses.
+allocates the addresses. Managed clusters get a cloud LoadBalancer for free;
+on-prem you supply one, e.g. [MetalLB](https://metallb.io/),
+[Cilium LB-IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/), or
+[kube-vip](https://kube-vip.io/). Without a LoadBalancer implementation a
+`type: LoadBalancer` Service stays `<pending>` and nothing is advertised.
 
 ## How it works
 
 1. A **`Network`** mirrors a NetBird network. A **`NetworkRouter`** binds the
-   routing peers to it — `peers.group` reuses an existing group, or
-   `peers.deploy` runs a DaemonSet.
+   **routing peers** to it — the NetBird peers that actually carry traffic to the
+   advertised LoadBalancer IPs. You pick one of two ways to provide them, and the
+   operator configures the `NetworkRouter` either way:
+
+   - **Reuse existing peers** (`peers.group`) — point at the NetBird group the
+     host-level netbird clients already running on your cluster nodes auto-join.
+     The operator creates **only** the router and deploys nothing.
+   - **Deploy peers** (`peers.deploy`) — the operator runs a `hostNetwork`
+     `netbird-client` **DaemonSet** as the routing peers and manages its `Group`,
+     `SetupKey`, and DaemonSet, wiring the router to it automatically. Use this
+     when your nodes don't already run netbird.
+
 2. A **`DNSZone`** (admin-authored or adopted by name) holds the per-service
    records.
 3. Give a Service `type: LoadBalancer` (any LB / IPAM allocates the IP) and the
@@ -106,6 +120,18 @@ spec:
 A full walkthrough is in [`examples/expose`](examples/expose/README.md). See the
 [NetBird Kubernetes docs](https://docs.netbird.io/manage/integrations/kubernetes)
 for management-side setup.
+
+## HowTos
+
+Worked examples under [`examples/`](examples/), each with its own README:
+
+| Example | What it shows |
+|---------|---------------|
+| [expose](examples/expose/README.md) | Advertise an HTTP `Service type=LoadBalancer` over the mesh and publish it through the NetBird reverse proxy (the end-to-end walkthrough). |
+| [mail](examples/mail/README.md) | Expose a mail server on many TCP ports (SMTP/IMAP/ManageSieve) under one hostname — L4 per-port services with PROXY protocol. |
+| [gateway](examples/gateway/README.md) | How a Gateway API `Gateway`/`HTTPRoute` is handled — the operator advertises the gateway's LoadBalancer Service; routing stays the gateway's job. |
+| [cluster-proxy](examples/cluster-proxy/README.md) | Put the Kubernetes API server on the mesh and reach it with `kubectl` over NetBird. |
+| [sidecar](examples/sidecar/README.md) | Inject a NetBird sidecar peer into Pods via a `SidecarProfile`. |
 
 ## API
 
