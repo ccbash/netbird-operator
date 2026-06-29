@@ -430,6 +430,9 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			WithSpec(nbv1alpha1ac.ReverseProxyServiceSpec().
 				WithDomain(string(hostname)).
 				WithProxyCluster(cfg.clusterAddress).
+				// Pass the original Host to the backend, as a Gateway/kgateway
+				// would — apps front themselves by their public hostname.
+				WithPassHostHeader(true).
 				WithBackends(routeBackends(route)...))
 		if err := r.Apply(ctx, rpsAC, client.ForceOwnership); err != nil {
 			return ctrl.Result{}, err

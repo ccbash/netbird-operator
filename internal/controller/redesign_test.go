@@ -640,6 +640,8 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "infisical-secrets-ccbash-cloud", Namespace: ns}, rps)).To(Succeed())
 			Expect(rps.Spec.Domain).To(Equal("secrets.ccbash.cloud"))
 			Expect(rps.Spec.ProxyCluster).To(Equal("gate.ccbash.cloud"))
+			Expect(rps.Spec.PassHostHeader).NotTo(BeNil())
+			Expect(*rps.Spec.PassHostHeader).To(BeTrue())
 			Expect(rps.Spec.Backends).To(HaveLen(1))
 			Expect(rps.Spec.Backends[0].ServiceRef.Name).To(Equal("infisical"))
 			Expect(rps.Spec.Backends[0].Port).To(Equal(8080))
