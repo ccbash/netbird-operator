@@ -436,12 +436,16 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			}
 			Expect(k8sClient.Create(ctx, backend)).To(Succeed())
 
+			groupAll := "All"
 			rps := &nbv1alpha1.ReverseProxyService{
 				ObjectMeta: metav1.ObjectMeta{Name: "secrets", Namespace: ns},
 				Spec: nbv1alpha1.ReverseProxyServiceSpec{
 					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "infisical"}, Path: "/"}},
 					ProxyCluster: "gate.test",
 					Domain:       "secrets.ccbash.cloud",
+					// Not private: access groups must be ignored, not sent (which
+					// would flip the service into the NetBird-Only state).
+					AccessGroups: []nbv1alpha1.GroupReference{{Name: &groupAll}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
@@ -456,6 +460,8 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(target.Host).NotTo(BeNil())
 			Expect(*target.Host).To(Equal(fmt.Sprintf("infisical.%s.svc.cluster.local", ns)))
 			Expect(target.Port).To(Equal(8080))
+			// Non-private: no access-group ACL is sent.
+			Expect(services[0].AccessGroups).To(BeNil())
 		})
 	})
 

@@ -129,13 +129,19 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	// governed by AccessRestrictions / proxy-cluster reachability, and the
 	// public listen port is set explicitly.
 	if isHTTP {
-		accessGroups, err := netbirdutil.GetGroupIDs(ctx, c, nb, rps.Spec.AccessGroups, rps.Namespace)
-		if err != nil {
-			return err
-		}
 		req.Private = rps.Spec.Private
-		if len(accessGroups) > 0 {
-			req.AccessGroups = &accessGroups
+		// AccessGroups are the NetBird-Only ACL — they only apply to a private
+		// service (the CRD documents them as ignored otherwise). Attaching them
+		// to a non-private service flips it into the NetBird-Only state with no
+		// effective ACL, so only resolve+send them when private is true.
+		if rps.Spec.Private != nil && *rps.Spec.Private {
+			accessGroups, err := netbirdutil.GetGroupIDs(ctx, c, nb, rps.Spec.AccessGroups, rps.Namespace)
+			if err != nil {
+				return err
+			}
+			if len(accessGroups) > 0 {
+				req.AccessGroups = &accessGroups
+			}
 		}
 	} else if rps.Spec.ListenPort != nil {
 		req.ListenPort = rps.Spec.ListenPort
