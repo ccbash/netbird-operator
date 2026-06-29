@@ -17,6 +17,7 @@ Package v1alpha1 contains API Schema definitions for the  v1alpha1 API group.
 - [NetworkResource](#networkresource)
 - [NetworkRouter](#networkrouter)
 - [ReverseProxyCluster](#reverseproxycluster)
+- [ReverseProxyClusterParameters](#reverseproxyclusterparameters)
 - [ReverseProxyService](#reverseproxyservice)
 - [SetupKey](#setupkey)
 - [SidecarProfile](#sidecarprofile)
@@ -323,6 +324,7 @@ _Appears in:_
 - [DNSZoneSpec](#dnszonespec)
 - [NetworkResourceSpec](#networkresourcespec)
 - [NetworkRouterPeers](#networkrouterpeers)
+- [ReverseProxyClusterParametersSpec](#reverseproxyclusterparametersspec)
 - [ReverseProxyClusterSpec](#reverseproxyclusterspec)
 - [ReverseProxyServiceSpec](#reverseproxyservicespec)
 - [SetupKeySpec](#setupkeyspec)
@@ -634,6 +636,51 @@ and registers it as the account's own proxy cluster.
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[ReverseProxyClusterSpec](#reverseproxyclusterspec)_ |  |  | Required: \{\} <br /> |
 | `status` _[ReverseProxyClusterStatus](#reverseproxyclusterstatus)_ |  | \{ observedGeneration:-1 \} |  |
+
+
+#### ReverseProxyClusterParameters
+
+
+
+ReverseProxyClusterParameters is the implementation config a GatewayClass for
+the NetBird BYOP proxy points at via parametersRef. It is cluster-scoped, like
+the GatewayClass that references it.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `netbird.io/v1alpha1` | | |
+| `kind` _string_ | `ReverseProxyClusterParameters` | | |
+| `kind` _string_ | Kind is a string value representing the REST resource this object represents.<br />Servers may infer this from the endpoint the client submits requests to.<br />Cannot be updated.<br />In CamelCase.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  | Optional: \{\} <br /> |
+| `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object.<br />Servers should convert recognized schemas to the latest internal value, and<br />may reject unrecognized values.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  | Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ReverseProxyClusterParametersSpec](#reverseproxyclusterparametersspec)_ |  |  | Required: \{\} <br /> |
+
+
+#### ReverseProxyClusterParametersSpec
+
+
+
+ReverseProxyClusterParametersSpec is the GatewayClass-level "flavor" shared by
+every Gateway of that class: the parts of a ReverseProxyCluster that aren't
+derived from a Gateway's own listeners. A Gateway derives its domain,
+clusterAddress and cert from its listeners; these fill in the rest.
+
+
+
+_Appears in:_
+- [ReverseProxyClusterParameters](#reverseproxyclusterparameters)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _string_ | Image overrides the netbird reverse-proxy image. Defaults to the operator's<br />pinned image. |  | Optional: \{\} <br /> |
+| `replicas` _integer_ | Replicas of the proxy Deployment. Defaults to 1. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `groups` _[GroupReference](#groupreference) array_ | Groups are NetBird groups the proxy's advertised LoadBalancer resource<br />joins, so access policies can target it. |  | Optional: \{\} <br /> |
+| `private` _boolean_ | Private enables NetBird-Only services: the proxy runs an embedded netbird<br />client (userspace WireGuard). Group-based services work regardless. |  | Optional: \{\} <br /> |
+| `serviceAnnotations` _object (keys:string, values:string)_ | ServiceAnnotations are added to each Gateway's proxy LoadBalancer Service,<br />e.g. to pin an LB-IPAM pool. |  | Optional: \{\} <br /> |
 
 
 #### ReverseProxyClusterSpec
