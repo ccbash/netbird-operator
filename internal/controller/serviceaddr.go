@@ -50,14 +50,14 @@ func ipFamilyOf(ip string) corev1.IPFamily {
 // dnsRecordTypeFor classifies an IP string as an A (IPv4) or AAAA (IPv6) record.
 // ok is false when the string is not a valid IP and should be skipped.
 func dnsRecordTypeFor(ip string) (api.DNSRecordType, bool) {
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
+	switch ipFamilyOf(ip) {
+	case corev1.IPv4Protocol:
+		return api.DNSRecordTypeA, true
+	case corev1.IPv6Protocol:
+		return api.DNSRecordTypeAAAA, true
+	default:
 		return "", false
 	}
-	if parsed.To4() != nil {
-		return api.DNSRecordTypeA, true
-	}
-	return api.DNSRecordTypeAAAA, true
 }
 
 // recordMatchKey builds a comparison key for a DNS record that is stable across

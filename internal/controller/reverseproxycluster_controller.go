@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -421,12 +422,5 @@ func groupNames(groups []nbv1alpha1.GroupReference) string {
 			names = append(names, *g.Name)
 		}
 	}
-	out := ""
-	for i, n := range names {
-		if i > 0 {
-			out += ","
-		}
-		out += n
-	}
-	return out
+	return strings.Join(names, ",")
 }
