@@ -43,6 +43,14 @@ kind: Gateway
 metadata:
   name: {{ $class }}
   namespace: {{ .Release.Namespace }}
+  {{- with .Values.gateway.certIssuer }}
+  annotations:
+    {{- if eq $.Values.gateway.certIssuerKind "Issuer" }}
+    cert-manager.io/issuer: {{ . | quote }}
+    {{- else }}
+    cert-manager.io/cluster-issuer: {{ . | quote }}
+    {{- end }}
+  {{- end }}
   labels:
     {{- include "netbird-operator.labels" . | nindent 4 }}
 spec:

@@ -199,6 +199,12 @@ gateway:
   domain: ""
   # Wildcard TLS Secret (tls.crt/tls.key) in this namespace for the listener.
   certSecretName: ""
+  # Optional: annotate the Gateway so cert-manager's gateway-shim issues the
+  # listener cert for *.<domain> into certSecretName (the Gateway-API-native
+  # way). Leave empty to reference a pre-provisioned secret. Just an annotation —
+  # no cert-manager CRD dependency if unset.
+  certIssuer: ""
+  certIssuerKind: ClusterIssuer   # or "Issuer" for a namespaced issuer
   # Class-level params (ReverseProxyClusterParameters) shared by the Gateway:
   # NetBird groups the proxy's LoadBalancer resource joins.
   groups: []
