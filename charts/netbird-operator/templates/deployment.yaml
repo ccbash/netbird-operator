@@ -63,7 +63,7 @@ spec:
           {{- if .Values.loadBalancer.dnsZone.domain }}
           - --loadbalancer-dns-zone={{ .Values.loadBalancer.dnsZone.domain }}
           {{- end }}
-          {{- if or .Values.enableGatewayAPI .Values.gateway.enabled }}
+          {{- if .Values.enableGatewayAPI }}
           - --enable-gateway-api
           {{- end }}
           {{- if .Values.managementURL }}

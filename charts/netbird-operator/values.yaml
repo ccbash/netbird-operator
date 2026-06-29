@@ -177,45 +177,10 @@ loadBalancer:
 
 # Enable the Gateway API controllers (GatewayClass/Gateway/HTTPRoute →
 # ReverseProxyCluster/ReverseProxyService). Requires the Gateway API CRDs in the
-# cluster. Auto-on when gateway.enabled below.
+# cluster. The GatewayClass + ReverseProxyClusterParameters + Gateway themselves
+# are NOT rendered by this chart — author them as your own manifests (they carry
+# your domain, cert issuer, and access groups).
 enableGatewayAPI: false
-
-# Enable the Gateway API controllers (GatewayClass/Gateway/HTTPRoute →
-# ReverseProxyCluster/ReverseProxyService). Requires the Gateway API CRDs in the
-# cluster. Auto-on when gateway.enabled below.
-enableGatewayAPI: false
-
-# A NetBird bring-your-own reverse proxy is deployed by creating a Gateway of a
-# netbird.io/byop-proxy GatewayClass — this renders that GatewayClass (+ its
-# ReverseProxyClusterParameters) and one Gateway. The operator turns the Gateway
-# into a ReverseProxyCluster (proxy Deployment + LB Service + DNS + custom
-# domain). HTTPRoutes attached to the Gateway become ReverseProxyServices.
-gateway:
-  enabled: false
-  # GatewayClass name (cluster-scoped). Defaults to the chart fullname.
-  className: ""
-  # Domain the proxy fronts, e.g. "example.com": the listener becomes
-  # *.<domain>, the cluster address gate.<domain>.
-  domain: ""
-  # Wildcard TLS Secret (tls.crt/tls.key) in this namespace for the listener.
-  certSecretName: ""
-  # Optional: annotate the Gateway so cert-manager's gateway-shim issues the
-  # listener cert for *.<domain> into certSecretName (the Gateway-API-native
-  # way). Leave empty to reference a pre-provisioned secret. Just an annotation —
-  # no cert-manager CRD dependency if unset.
-  certIssuer: ""
-  certIssuerKind: ClusterIssuer   # or "Issuer" for a namespaced issuer
-  # Class-level params (ReverseProxyClusterParameters) shared by the Gateway:
-  # NetBird groups the proxy's LoadBalancer resource joins.
-  groups: []
-  # Enable NetBird-Only (private) services: the proxy runs an embedded netbird
-  # client. Group-based services work regardless.
-  private: false
-  # Override the proxy image / replicas (empty = operator defaults).
-  image: ""
-  replicas: 1
-  # Annotations for the proxy's LoadBalancer Service (e.g. pin an LB-IPAM pool).
-  serviceAnnotations: {}
 
 general:
   # General labels, applied to all created K8s resources
