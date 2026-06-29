@@ -119,6 +119,13 @@ spec:
                   Image overrides the netbird reverse-proxy image. Defaults to the operator's
                   pinned image.
                 type: string
+              private:
+                description: |-
+                  Private enables NetBird-Only access for services on this cluster. The proxy
+                  then runs an embedded netbird client (a mesh peer, userspace WireGuard — no
+                  extra privileges), which the cluster needs to serve private (mesh-only)
+                  services. Group-based services keep working regardless.
+                type: boolean
               replicas:
                 default: 1
                 description: Replicas of the proxy Deployment. Defaults to 1.
@@ -220,6 +227,12 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              domainID:
+                description: |-
+                  DomainID is the id of the registered NetBird custom domain (Domain ->
+                  ClusterAddress), so service domains under it derive this cluster. Removed
+                  when the cluster is deleted.
+                type: string
               loadBalancerIP:
                 description: |-
                   LoadBalancerIP is the proxy Service's assigned ingress IP — what the A

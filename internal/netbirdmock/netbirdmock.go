@@ -103,6 +103,18 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 		output.PlainToken = "plain-" + id
 		return output
 	})
+	// Reverse-proxy custom domains (Domain -> TargetCluster) + their validate hook.
+	addHandler(mux, "reverse-proxies/domains", func(id string, input api.ReverseProxyDomainRequest, output api.ReverseProxyDomain) api.ReverseProxyDomain {
+		output.Id = id
+		output.Domain = input.Domain
+		tc := input.TargetCluster
+		output.TargetCluster = &tc
+		output.Validated = true
+		return output
+	})
+	mux.Handle("GET /api/reverse-proxies/domains/{id}/validate", http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	}))
 
 	addHandler(mux, "groups", func(id string, input api.GroupRequest, output api.Group) api.Group {
 		output.Id = id

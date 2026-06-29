@@ -21,8 +21,6 @@ import (
 
 const (
 	advertiseAnnotation = "netbird.io/advertise"
-	networkAnnotation   = "netbird.io/network"
-	zoneAnnotation      = "netbird.io/dns-zone"
 	// groupsAnnotation lists the NetBird groups (comma-separated names) the
 	// advertised resource joins, so access policies can target it.
 	groupsAnnotation = "netbird.io/groups"
@@ -40,6 +38,11 @@ type LoadBalancerReconciler struct {
 	client.Client
 
 	DefaultAdvertise bool
+	// Network and DNSZone name the single NetBird Network and DNSZone that
+	// advertised LoadBalancer Services attach to. They are explicit (operator
+	// config); the proxy's own zones are never used for LB exposure.
+	Network string
+	DNSZone string
 	// DefaultGroups are the NetBird groups advertised resources join when a
 	// Service/namespace sets no netbird.io/groups annotation.
 	DefaultGroups []string
@@ -73,11 +76,11 @@ func (r *LoadBalancerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil // waiting for the LB to allocate an address
 	}
 
-	network, err := r.resolveNetwork(ctx, svc, &nsObj)
+	network, err := r.resolveNetwork(ctx)
 	if err != nil {
 		return r.dependencyRequeue(svc, err)
 	}
-	zone, err := r.resolveZone(ctx, svc, &nsObj)
+	zone, err := r.resolveZone(ctx)
 	if err != nil {
 		return r.dependencyRequeue(svc, err)
 	}
@@ -173,44 +176,30 @@ func (r *LoadBalancerReconciler) prune(ctx context.Context, svc *corev1.Service,
 	return nil
 }
 
-func (r *LoadBalancerReconciler) resolveNetwork(ctx context.Context, svc *corev1.Service, ns *corev1.Namespace) (*nbv1alpha1.Network, error) {
-	name := annotation(svc, ns, networkAnnotation)
+func (r *LoadBalancerReconciler) resolveNetwork(ctx context.Context) (*nbv1alpha1.Network, error) {
 	var list nbv1alpha1.NetworkList
 	if err := r.List(ctx, &list); err != nil {
 		return nil, err
 	}
-	if name != "" {
-		for i := range list.Items {
-			if list.Items[i].Name == name {
-				return &list.Items[i], nil
-			}
+	for i := range list.Items {
+		if list.Items[i].Name == r.Network {
+			return &list.Items[i], nil
 		}
-		return nil, fmt.Errorf("%w: Network %q not found", errDependencyNotReady, name)
 	}
-	if len(list.Items) == 1 {
-		return &list.Items[0], nil
-	}
-	return nil, fmt.Errorf("%w: no single Network (found %d); set the %s annotation", errDependencyNotReady, len(list.Items), networkAnnotation)
+	return nil, fmt.Errorf("%w: Network %q not found", errDependencyNotReady, r.Network)
 }
 
-func (r *LoadBalancerReconciler) resolveZone(ctx context.Context, svc *corev1.Service, ns *corev1.Namespace) (*nbv1alpha1.DNSZone, error) {
-	name := annotation(svc, ns, zoneAnnotation)
+func (r *LoadBalancerReconciler) resolveZone(ctx context.Context) (*nbv1alpha1.DNSZone, error) {
 	var list nbv1alpha1.DNSZoneList
 	if err := r.List(ctx, &list); err != nil {
 		return nil, err
 	}
-	if name != "" {
-		for i := range list.Items {
-			if list.Items[i].Name == name {
-				return &list.Items[i], nil
-			}
+	for i := range list.Items {
+		if list.Items[i].Name == r.DNSZone {
+			return &list.Items[i], nil
 		}
-		return nil, fmt.Errorf("%w: DNSZone %q not found", errDependencyNotReady, name)
 	}
-	if len(list.Items) == 1 {
-		return &list.Items[0], nil
-	}
-	return nil, fmt.Errorf("%w: no single DNSZone (found %d); set the %s annotation", errDependencyNotReady, len(list.Items), zoneAnnotation)
+	return nil, fmt.Errorf("%w: DNSZone %q not found", errDependencyNotReady, r.DNSZone)
 }
 
 func (r *LoadBalancerReconciler) SetupWithManager(mgr ctrl.Manager) error {

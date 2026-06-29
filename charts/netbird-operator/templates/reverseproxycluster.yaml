@@ -9,6 +9,7 @@ metadata:
 spec:
   clusterAddress: {{ .Values.reverseProxyCluster.clusterAddress | default .Values.reverseProxyCluster.domain | quote }}
   domain: {{ required "reverseProxyCluster.domain is required when reverseProxyCluster.enabled" .Values.reverseProxyCluster.domain | quote }}
+  private: {{ .Values.reverseProxyCluster.private }}
   {{- with .Values.reverseProxyCluster.certSecretName }}
   certSecretName: {{ . | quote }}
   {{- end }}

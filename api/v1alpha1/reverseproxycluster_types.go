@@ -42,6 +42,13 @@ type ReverseProxyClusterSpec struct {
 	// +optional
 	Groups []GroupReference `json:"groups,omitempty"`
 
+	// Private enables NetBird-Only access for services on this cluster. The proxy
+	// then runs an embedded netbird client (a mesh peer, userspace WireGuard — no
+	// extra privileges), which the cluster needs to serve private (mesh-only)
+	// services. Group-based services keep working regardless.
+	// +optional
+	Private bool `json:"private,omitempty"`
+
 	// Replicas of the proxy Deployment. Defaults to 1.
 	// +optional
 	// +kubebuilder:default=1
@@ -80,6 +87,12 @@ type ReverseProxyClusterStatus struct {
 	// deleted).
 	// +optional
 	TokenID string `json:"tokenID,omitempty"`
+
+	// DomainID is the id of the registered NetBird custom domain (Domain ->
+	// ClusterAddress), so service domains under it derive this cluster. Removed
+	// when the cluster is deleted.
+	// +optional
+	DomainID string `json:"domainID,omitempty"`
 
 	// LoadBalancerIP is the proxy Service's assigned ingress IP — what the A
 	// record points at.

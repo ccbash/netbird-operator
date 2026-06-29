@@ -33,6 +33,11 @@ type ReverseProxyClusterSpecApplyConfiguration struct {
 	// Groups are NetBird groups the proxy's advertised LoadBalancer resource
 	// joins, so access policies can target it.
 	Groups []GroupReferenceApplyConfiguration `json:"groups,omitempty"`
+	// Private enables NetBird-Only access for services on this cluster. The proxy
+	// then runs an embedded netbird client (a mesh peer, userspace WireGuard — no
+	// extra privileges), which the cluster needs to serve private (mesh-only)
+	// services. Group-based services keep working regardless.
+	Private *bool `json:"private,omitempty"`
 	// Replicas of the proxy Deployment. Defaults to 1.
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Image overrides the netbird reverse-proxy image. Defaults to the operator's
@@ -91,6 +96,14 @@ func (b *ReverseProxyClusterSpecApplyConfiguration) WithGroups(values ...*GroupR
 		}
 		b.Groups = append(b.Groups, *values[i])
 	}
+	return b
+}
+
+// WithPrivate sets the Private field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Private field is set to the value of the last call.
+func (b *ReverseProxyClusterSpecApplyConfiguration) WithPrivate(value bool) *ReverseProxyClusterSpecApplyConfiguration {
+	b.Private = &value
 	return b
 }
 

@@ -23,6 +23,10 @@ type ReverseProxyClusterStatusApplyConfiguration struct {
 	// TokenID is the id of the minted proxy token (revoked when the cluster is
 	// deleted).
 	TokenID *string `json:"tokenID,omitempty"`
+	// DomainID is the id of the registered NetBird custom domain (Domain ->
+	// ClusterAddress), so service domains under it derive this cluster. Removed
+	// when the cluster is deleted.
+	DomainID *string `json:"domainID,omitempty"`
 	// LoadBalancerIP is the proxy Service's assigned ingress IP — what the A
 	// record points at.
 	LoadBalancerIP *string `json:"loadBalancerIP,omitempty"`
@@ -68,6 +72,14 @@ func (b *ReverseProxyClusterStatusApplyConfiguration) WithClusterAddress(value s
 // If called multiple times, the TokenID field is set to the value of the last call.
 func (b *ReverseProxyClusterStatusApplyConfiguration) WithTokenID(value string) *ReverseProxyClusterStatusApplyConfiguration {
 	b.TokenID = &value
+	return b
+}
+
+// WithDomainID sets the DomainID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DomainID field is set to the value of the last call.
+func (b *ReverseProxyClusterStatusApplyConfiguration) WithDomainID(value string) *ReverseProxyClusterStatusApplyConfiguration {
+	b.DomainID = &value
 	return b
 }
 

@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -31,8 +32,11 @@ import (
 )
 
 const (
-	proxyTokenKey   = "token"
-	proxyListenPort = 443
+	proxyTokenKey = "token"
+	// proxyListenPort is the proxy's single SNI/HTTP listener — a non-privileged
+	// port so the container needs no NET_BIND_SERVICE. The LoadBalancer Service
+	// maps the public 80/443 onto it.
+	proxyListenPort = 8443
 	proxyHealthPort = 8080
 )
 
@@ -137,6 +141,42 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	rpc.Status.ClusterAddress = rpc.Spec.ClusterAddress
 
+	// 6. Register the custom domain (Domain -> this cluster) so service domains
+	//    under it derive the cluster. Adopt an existing registration if present.
+	if rpc.Status.DomainID == "" {
+		domains, err := r.Netbird.ReverseProxyDomains.List(ctx)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		for _, d := range domains {
+			if d.Domain == rpc.Spec.Domain {
+				rpc.Status.DomainID = d.Id
+				break
+			}
+		}
+		if rpc.Status.DomainID == "" {
+			resp, err := r.Netbird.ReverseProxyDomains.Create(ctx, api.ReverseProxyDomainRequest{
+				Domain:        rpc.Spec.Domain,
+				TargetCluster: rpc.Spec.ClusterAddress,
+			})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			rpc.Status.DomainID = resp.Id
+		}
+		if err := sp.Patch(ctx, rpc); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	// Trigger/confirm validation; requeue until it passes (DNS may still be settling).
+	if err := r.Netbird.ReverseProxyDomains.Validate(ctx, rpc.Status.DomainID); err != nil {
+		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "validating custom domain %s: %s", rpc.Spec.Domain, err.Error())
+		if perr := sp.Patch(ctx, rpc); perr != nil {
+			return ctrl.Result{}, perr
+		}
+		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+	}
+
 	conditions.MarkTrue(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.ReconciledReason, "")
 	if err := sp.Patch(ctx, rpc, patch.WithStatusObservedGeneration{}); err != nil {
 		return ctrl.Result{}, err
@@ -149,6 +189,11 @@ func (r *ReverseProxyClusterReconciler) reconcileDelete(ctx context.Context, sp 
 	// (Secret/Deployment/Service/DNS*) GC via owner refs.
 	if rpc.Status.TokenID != "" {
 		if err := r.Netbird.ReverseProxyTokens.Delete(ctx, rpc.Status.TokenID); err != nil && !netbird.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+	if rpc.Status.DomainID != "" {
+		if err := r.Netbird.ReverseProxyDomains.Delete(ctx, rpc.Status.DomainID); err != nil && !netbird.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 	}
@@ -237,11 +282,19 @@ func (r *ReverseProxyClusterReconciler) applyDeployment(ctx context.Context, rpc
 			corev1ac.EnvVar().WithName("NB_PROXY_HEALTH_ADDRESS").WithValue(fmt.Sprintf(":%d", proxyHealthPort)),
 			corev1ac.EnvVar().WithName("NB_PROXY_ACME_CERTIFICATES").WithValue("false"),
 			corev1ac.EnvVar().WithName("NB_PROXY_CERTIFICATE_DIRECTORY").WithValue("/certs"),
+			// Run an embedded netbird client (userspace WG) so the cluster can serve
+			// NetBird-Only (private) services.
+			corev1ac.EnvVar().WithName("NB_PROXY_PRIVATE").WithValue(strconv.FormatBool(rpc.Spec.Private)),
 			corev1ac.EnvVar().WithName("NB_PROXY_TOKEN").WithValueFrom(corev1ac.EnvVarSource().
 				WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(proxyResourceName(rpc)).WithKey(proxyTokenKey))),
 		).
-		WithReadinessProbe(corev1ac.Probe().WithTCPSocket(corev1ac.TCPSocketAction().WithPort(intstr.FromInt(proxyListenPort)))).
-		WithLivenessProbe(corev1ac.Probe().WithTCPSocket(corev1ac.TCPSocketAction().WithPort(intstr.FromInt(proxyListenPort)))).
+		WithStartupProbe(corev1ac.Probe().
+			WithHTTPGet(corev1ac.HTTPGetAction().WithPath("/healthz/startup").WithPort(intstr.FromInt(proxyHealthPort))).
+			WithFailureThreshold(30).WithPeriodSeconds(2)).
+		WithReadinessProbe(corev1ac.Probe().
+			WithHTTPGet(corev1ac.HTTPGetAction().WithPath("/healthz/ready").WithPort(intstr.FromInt(proxyHealthPort)))).
+		WithLivenessProbe(corev1ac.Probe().
+			WithHTTPGet(corev1ac.HTTPGetAction().WithPath("/healthz/live").WithPort(intstr.FromInt(proxyHealthPort)))).
 		WithSecurityContext(corev1ac.SecurityContext().
 			WithAllowPrivilegeEscalation(false).
 			WithCapabilities(corev1ac.Capabilities().WithDrop("ALL"))).
@@ -256,7 +309,15 @@ func (r *ReverseProxyClusterReconciler) applyDeployment(ctx context.Context, rpc
 	if rpc.Spec.CertSecretName != "" {
 		container.WithVolumeMounts(corev1ac.VolumeMount().WithName("certs").WithMountPath("/certs").WithReadOnly(true))
 	}
-	podSpec := corev1ac.PodSpec().WithContainers(container)
+	podSpec := corev1ac.PodSpec().
+		WithContainers(container).
+		// ndots:1 so the proxy resolves external FQDNs (pkgs.netbird.io for the
+		// GeoLite2 DB, ACME, etc.) as-is instead of appending the NetBird search
+		// domain kubelet injects — which otherwise hijacks them and breaks egress
+		// (tls: internal error -> no geo DB -> the proxy denies all requests 403).
+		// Cluster names (svc.cluster.local) have >1 dot, so they still resolve.
+		WithDNSConfig(corev1ac.PodDNSConfig().
+			WithOptions(corev1ac.PodDNSConfigOption().WithName("ndots").WithValue("1")))
 	if rpc.Spec.CertSecretName != "" {
 		podSpec.WithVolumes(corev1ac.Volume().WithName("certs").
 			WithSecret(corev1ac.SecretVolumeSource().WithSecretName(rpc.Spec.CertSecretName)))
@@ -278,7 +339,12 @@ func (r *ReverseProxyClusterReconciler) applyService(ctx context.Context, rpc *n
 		WithSpec(corev1ac.ServiceSpec().
 			WithType(corev1.ServiceTypeLoadBalancer).
 			WithSelector(proxySelectorLabels(rpc)).
-			WithPorts(corev1ac.ServicePort().WithName("https").WithPort(proxyListenPort).WithTargetPort(intstr.FromInt(proxyListenPort))))
+			WithPorts(
+				// Public 80 and 443 both map onto the proxy's single listener,
+				// which detects TLS vs plain HTTP (SNI router).
+				corev1ac.ServicePort().WithName("http").WithPort(80).WithTargetPort(intstr.FromInt(proxyListenPort)),
+				corev1ac.ServicePort().WithName("https").WithPort(443).WithTargetPort(intstr.FromInt(proxyListenPort)),
+			))
 	if len(rpc.Spec.ServiceAnnotations) > 0 {
 		svcAC.WithAnnotations(rpc.Spec.ServiceAnnotations)
 	}
