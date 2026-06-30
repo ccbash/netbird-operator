@@ -7,12 +7,15 @@
 Run a NetBird **bring-your-own-proxy** (BYOP) reverse proxy as a **drop-in,
 internal replacement for kgateway**, driven by **Gateway API**. The operator is a
 first-class **GatewayClass + Gateway controller** (`controllerName:
-netbird.io/byop-proxy`):
+netbird.io/gateway-controller`):
 
-- A `GatewayClass` points its `parametersRef` at a cluster-scoped
-  **`ReverseProxyClusterParameters`** — the class "flavor"
-  (image/replicas/groups/private/serviceAnnotations).
-- Each **`Gateway`** of that class **is one proxy instance**: the operator
+- The operator **creates and owns its `GatewayClass`** (default name `netbird`,
+  `--gateway-class-name`) whenever `--enable-gateway-api` is set, and self-heals
+  it if deleted. No hand-authored class.
+- Each **`Gateway`** of that class **is one proxy instance**: it points
+  `spec.infrastructure.parametersRef` at a namespaced
+  **`ReverseProxyClusterParameters`** (in the Gateway's namespace) for the
+  "flavor" (image/replicas/groups/private/serviceAnnotations); the operator
   derives `domain`/`clusterAddress`/cert from its listeners and **creates an
   owned `ReverseProxyCluster`** (the data plane: proxy Deployment + LB Service +
   DNS + NetBird custom domain). The Gateway's `status` reflects that cluster.
@@ -41,7 +44,7 @@ NetBird peer
 
 | Topic | Decision |
 |-------|----------|
-| Shape | **Gateway-first-class.** GatewayClass.parametersRef → `ReverseProxyClusterParameters`; each Gateway creates an owned `ReverseProxyCluster`. The direct chart-rendered RPC option was removed (Gateway-only). |
+| Shape | **Gateway-first-class.** The operator owns its `GatewayClass`; each Gateway points `spec.infrastructure.parametersRef` at a namespaced `ReverseProxyClusterParameters` and creates an owned `ReverseProxyCluster`. The direct chart-rendered RPC option was removed (Gateway-only). |
 | Addressing | **Listener + convention.** `domain` = listener hostname minus `*.`; `clusterAddress` = `gate.<domain>`; cert = listener `tls.certificateRefs[0]`. Single TLS listener per Gateway (v1); extras get an "Unused" condition. |
 | Exposure | Internal `Service type=LoadBalancer` (Cilium LB IP), reached over the mesh. No public edge, no ACME. Proxy listens on non-privileged `:8443`; the LB Service maps public 80/443 → 8443 (single SNI listener detects TLS vs HTTP). |
 | Backend reach | **Direct to ClusterIP** (drop-in). `ReverseProxyService` targets are `TargetType=cluster` + `direct_upstream=true` + `Host=<svc>.<ns>.svc.cluster.local`. Honored by management v0.73.2 on a centralised cluster — **DirectUpstream does NOT require a private/embedded cluster** (the dashboard only *shows* the toggle for private clusters). |
@@ -50,7 +53,7 @@ NetBird peer
 | Enrollment | **Token-only**: `NB_PROXY_TOKEN`, minted via `ReverseProxyTokens.Create`. Cluster address = `NB_PROXY_DOMAIN`. |
 | DNS | NetBird-managed via `DNSZone`/`DNSRecord`: A `<clusterAddress>` → LB IP, catch-all `*.<domain>` → `<clusterAddress>`. Plus a **`ReverseProxyDomains` custom domain** (`<domain>` → cluster) so `*.<domain>` service hostnames derive the cluster. |
 | Pod DNS | **`ndots:1`** on the proxy pod: the node publishes a search domain (e.g. `ccbash.de`) that kubelet appends to ClusterFirst pods; under ndots:5 external FQDNs (geo DB `pkgs.netbird.io`, ACME) get it glued on and resolve wrong (`tls: internal error`). ndots:1 queries them as-is; `svc.cluster.local` still resolves. |
-| LoadBalancer zone | LB-advertised Services use an **explicit** `Network` + `DNSZone` (operator flags), never the proxy's `ccbash.io` zone. |
+| LoadBalancer zone | LB-advertised Services attach to an **explicit** `Network` (admin-authored, paired with its `NetworkRouter`). The `DNSZone` is **operator-owned**: the LoadBalancer controller creates it from `--loadbalancer-dns-zone` (apex domain) + `--loadbalancer-dns-zone-groups` (distribution groups) and self-heals it, so it never needs hand-authoring and is never the proxy's `ccbash.io` zone. |
 
 ## Components
 
@@ -72,12 +75,14 @@ FQDN; any other (ClusterIP) → `<svc>.<ns>.svc.cluster.local`. Targets are
 `AccessGroups` are only sent for `private:true` services (the NetBird-Only ACL).
 
 ### 3. Gateway-API controllers
-- **`GatewayClassReconciler`** — accept classes whose `controllerName ==
-  netbird.io/byop-proxy`; `Accepted` reflects whether `parametersRef` resolves to
-  a `ReverseProxyClusterParameters`.
+- **`GatewayClassReconciler`** — owns the operator's GatewayClass: ensures the
+  managed class (`controllerName == netbird.io/gateway-controller`) exists at
+  startup (a leader-elected `manager.Runnable`), recreates it if deleted, and
+  marks any class of our controllerName `Accepted`.
 - **`GatewayReconciler`** — for a Gateway of an accepted class: derive the proxy
   config from the first TLS listener (hostname → `domain`, `gate.<domain>` →
-  `clusterAddress`, `certificateRefs[0]` → cert), merge the class params, and
+  `clusterAddress`, `certificateRefs[0]` → cert), merge the params from the
+  Gateway's `spec.infrastructure.parametersRef`, and
   **server-side-apply an owned `ReverseProxyCluster`**. Reflect the cluster into
   Gateway `status`: `Accepted`, `Programmed` (tracks the RPC's `Ready`),
   `.addresses` (the proxy LB IP), per-listener conditions (Accepted /

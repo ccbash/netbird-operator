@@ -84,7 +84,18 @@ rules:
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
+  # The operator creates and self-heals its own GatewayClass.
   - gatewayclasses
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
   - gateways
   - httproutes
   verbs:

@@ -63,8 +63,14 @@ spec:
           {{- if .Values.loadBalancer.dnsZone.domain }}
           - --loadbalancer-dns-zone={{ .Values.loadBalancer.dnsZone.domain }}
           {{- end }}
+          {{- with .Values.loadBalancer.dnsZone.distributionGroups }}
+          - --loadbalancer-dns-zone-groups={{ join "," . }}
+          {{- end }}
           {{- if .Values.enableGatewayAPI }}
           - --enable-gateway-api
+          {{- with .Values.gatewayClassName }}
+          - --gateway-class-name={{ . }}
+          {{- end }}
           {{- end }}
           {{- if .Values.managementURL }}
           - --netbird-management-url={{.Values.managementURL}}

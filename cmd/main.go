@@ -63,6 +63,7 @@ func main() {
 		defaultResourceGroups string
 		lbNetwork             string
 		lbDNSZone             string
+		lbDNSZoneGroups       string
 	)
 	flag.StringVar(&runtimeNamespace, "runtime-namespace", "", "Namespace the controller is running in")
 	flag.StringVar(&managementURL, "netbird-management-url", "https://api.netbird.io", "Management service URL")
@@ -75,7 +76,9 @@ func main() {
 	flag.StringVar(&lbNetwork, "loadbalancer-network", "",
 		"Name of the NetBird Network that advertised LoadBalancer Services attach their NetworkResource to.")
 	flag.StringVar(&lbDNSZone, "loadbalancer-dns-zone", "",
-		"Name of the DNSZone that advertised LoadBalancer Services get their <svc>-<ns>.<zone> DNSRecord in.")
+		"Apex domain of the operator-owned DNSZone that advertised LoadBalancer Services get their <svc>-<ns>.<zone> DNSRecord in. The operator creates and owns this zone.")
+	flag.StringVar(&lbDNSZoneGroups, "loadbalancer-dns-zone-groups", "",
+		"Comma-separated NetBird distribution groups whose peers receive the LoadBalancer DNSZone, so they can resolve its records.")
 
 	// Controller generic flags
 	var (
@@ -88,6 +91,7 @@ func main() {
 		probeAddr            string
 		enableWebhooks       bool
 		enableGatewayAPI     bool
+		gatewayClassName     string
 		logLevel             string
 		logFormat            string
 	)
@@ -110,7 +114,9 @@ func main() {
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", true, "If set, enable Mutating and Validating webhooks.")
 	flag.BoolVar(&enableGatewayAPI, "enable-gateway-api", false,
-		"If set, reconcile Gateway API GatewayClass/HTTPRoute objects of the netbird.io/byop-proxy controller (requires the Gateway API CRDs).")
+		"If set, run the netbird.io/gateway-controller Gateway API controllers (requires the Gateway API CRDs). The operator creates and owns its GatewayClass.")
+	flag.StringVar(&gatewayClassName, "gateway-class-name", "netbird",
+		"Name of the operator-owned GatewayClass created when --enable-gateway-api is set.")
 	flag.Parse()
 
 	zapOpts, err := logging.Options(logLevel, logFormat)
@@ -196,7 +202,7 @@ func main() {
 		}
 	}
 
-	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, advertiseLBs, enableGatewayAPI, defaultResourceGroups, lbNetwork, lbDNSZone); err != nil {
+	if err := setupControllers(mgr, netbirdAPIKey, managementURL, netbirdClientImage, runtimeNamespace, advertiseLBs, enableGatewayAPI, gatewayClassName, defaultResourceGroups, lbNetwork, lbDNSZone, lbDNSZoneGroups); err != nil {
 		setupLog.Error(err, "unable to set up controllers")
 		os.Exit(1)
 	}
@@ -232,7 +238,7 @@ func main() {
 
 // setupControllers registers the NetBird controllers that require API access.
 // It is a no-op (with a log line) when no API key is configured.
-func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage string, advertiseLBs, enableGatewayAPI bool, defaultResourceGroups, lbNetwork, lbDNSZone string) error {
+func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdClientImage, runtimeNamespace string, advertiseLBs, enableGatewayAPI bool, gatewayClassName, defaultResourceGroups, lbNetwork, lbDNSZone, lbDNSZoneGroups string) error {
 	if len(netbirdAPIKey) == 0 {
 		setupLog.Info("netbird API key not provided, ingress capabilities disabled")
 		return nil
@@ -294,9 +300,11 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	// Translation + exposure.
 	if err := (&controller.LoadBalancerReconciler{
 		Client:           mgr.GetClient(),
+		Namespace:        runtimeNamespace,
 		DefaultAdvertise: advertiseLBs,
 		Network:          lbNetwork,
 		DNSZone:          lbDNSZone,
+		DNSZoneGroups:    splitGroups(lbDNSZoneGroups),
 		DefaultGroups:    splitGroups(defaultResourceGroups),
 		Recorder:         mgr.GetEventRecorderFor("loadbalancer"),
 	}).SetupWithManager(mgr); err != nil {
@@ -317,8 +325,14 @@ func setupControllers(mgr ctrl.Manager, netbirdAPIKey, managementURL, netbirdCli
 	// Gateway API translation onto ReverseProxyService — opt-in, since it needs
 	// the Gateway API CRDs installed.
 	if enableGatewayAPI {
-		if err := (&controller.GatewayClassReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr); err != nil {
+		gcReconciler := &controller.GatewayClassReconciler{Client: mgr.GetClient(), ManagedClassName: gatewayClassName}
+		if err := gcReconciler.SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("setup GatewayClass controller: %w", err)
+		}
+		// Seed the operator-owned GatewayClass once the manager is the leader; the
+		// controller's watch self-heals it thereafter.
+		if err := mgr.Add(gcReconciler); err != nil {
+			return fmt.Errorf("register GatewayClass seeder: %w", err)
 		}
 		if err := (&controller.GatewayReconciler{
 			Client:   mgr.GetClient(),

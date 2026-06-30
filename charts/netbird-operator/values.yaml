@@ -169,18 +169,24 @@ loadBalancer:
   # The NetBird Network the NetworkResource attaches to. Created elsewhere,
   # paired with its NetworkRouter (the routing-peer DaemonSet).
   network: ""
-  # The DNSZone the <svc>-<ns>.<zone> records land in — created by this chart.
-  # The CR (and the operator's reference) is named after the domain.
+  # The DNSZone the <svc>-<ns>.<zone> records land in. The operator creates and
+  # owns this zone (named after the domain); set domain to enable it.
+  # distributionGroups are the NetBird groups whose peers receive the zone (so
+  # they can resolve its records).
   dnsZone:
     domain: ""
     distributionGroups: []
 
-# Enable the Gateway API controllers (GatewayClass/Gateway/HTTPRoute →
+# Enable the Gateway API controllers (Gateway/HTTPRoute →
 # ReverseProxyCluster/ReverseProxyService). Requires the Gateway API CRDs in the
-# cluster. The GatewayClass + ReverseProxyClusterParameters + Gateway themselves
-# are NOT rendered by this chart — author them as your own manifests (they carry
-# your domain, cert issuer, and access groups).
+# cluster. The operator creates and owns its GatewayClass (named gatewayClassName
+# below). Author the Gateway + its ReverseProxyClusterParameters (in the
+# Gateway's namespace, referenced via spec.infrastructure.parametersRef) as your
+# own manifests — they carry your domain, cert issuer, and access groups.
 enableGatewayAPI: false
+# Name of the operator-owned GatewayClass (your Gateways set this as
+# gatewayClassName). Only created when enableGatewayAPI is true.
+gatewayClassName: netbird
 
 general:
   # General labels, applied to all created K8s resources

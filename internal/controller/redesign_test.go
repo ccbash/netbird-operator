@@ -60,16 +60,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 		return network
 	}
 
-	readyZone := func(domain string) *nbv1alpha1.DNSZone {
-		zone := &nbv1alpha1.DNSZone{
-			ObjectMeta: metav1.ObjectMeta{Name: ns, Namespace: ns},
-			Spec:       nbv1alpha1.DNSZoneSpec{Name: domain, Domain: domain, Enabled: true},
-		}
-		Expect(k8sClient.Create(ctx, zone)).To(Succeed())
-		_, err := reconcileOnce(NewDNSZoneReconciler(k8sClient, nbClient, nil), ns)
-		Expect(err).NotTo(HaveOccurred())
-		return zone
-	}
+	// lbZoneDomain is the apex domain the LoadBalancer controller is configured
+	// with; it creates and owns the DNSZone itself (named after the domain).
+	const lbZoneDomain = "kube.example.com"
 
 	// lbService creates a Service type=LoadBalancer and sets its ingress IPs.
 	lbService := func(name string, ips ...string) *corev1.Service {
@@ -184,12 +177,20 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 	Describe("LoadBalancer translation", func() {
 		It("advertises a dualstack LB Service as NetworkResource + DNSRecord per family", func() {
 			readyNetwork()
-			readyZone("kube.example.com")
 			svc := lbService("app", "192.0.2.10", "2001:db8::10")
 
-			r := &LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true, Network: ns, DNSZone: ns, DefaultGroups: []string{"All"}}
+			r := &LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain, DNSZoneGroups: []string{"All"}, DefaultGroups: []string{"All"}}
 			_, err := reconcileOnce(r, "app")
 			Expect(err).NotTo(HaveOccurred())
+
+			// The operator creates and owns the LoadBalancer DNSZone (named after
+			// the domain), with the configured distribution groups.
+			zone := &nbv1alpha1.DNSZone{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: lbZoneDomain, Namespace: ns}, zone)).To(Succeed())
+			Expect(zone.Spec.Domain).To(Equal(lbZoneDomain))
+			Expect(zone.Spec.Enabled).To(BeTrue())
+			Expect(zone.Spec.DistributionGroups).To(HaveLen(1))
+			Expect(zone.Spec.DistributionGroups[0].Name).To(HaveValue(Equal("All")))
 
 			v4 := &nbv1alpha1.NetworkResource{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "app-ipv4", Namespace: ns}, v4)).To(Succeed())
@@ -216,14 +217,13 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 
 		It("namespace opt-out advertises nothing", func() {
 			readyNetwork()
-			readyZone("kube.example.com")
 			nsObj := &corev1.Namespace{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: ns}, nsObj)).To(Succeed())
 			nsObj.Annotations = map[string]string{advertiseAnnotation: "false"}
 			Expect(k8sClient.Update(ctx, nsObj)).To(Succeed())
 			lbService("app", "192.0.2.10")
 
-			r := &LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true, Network: ns, DNSZone: ns}
+			r := &LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain}
 			_, err := reconcileOnce(r, "app")
 			Expect(err).NotTo(HaveOccurred())
 
@@ -235,10 +235,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 	Describe("ReverseProxyService", func() {
 		It("targets the backend Service's DNSRecord FQDN", func() {
 			readyNetwork()
-			readyZone("kube.example.com")
 			lbService("app", "192.0.2.10")
 			// advertise the Service so its DNSRecord exists.
-			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true, Network: ns, DNSZone: ns}, "app")
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain}, "app")
 			Expect(err).NotTo(HaveOccurred())
 
 			controls.AddProxyCluster("cluster-1", "gate.test")
@@ -276,7 +275,6 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 
 		It("exposes an L4 (tcp) service on a fixed listen port", func() {
 			readyNetwork()
-			readyZone("kube.example.com")
 			// Backend with a named port (smtp) so the per-port domain reads mail-smtp.
 			backend := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: ns},
@@ -286,7 +284,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(backend), backend)).To(Succeed())
 			backend.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.20"}}
 			Expect(k8sClient.Status().Update(ctx, backend)).To(Succeed())
-			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true, Network: ns, DNSZone: ns}, "mail")
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain}, "mail")
 			Expect(err).NotTo(HaveOccurred())
 
 			controls.AddProxyCluster("cluster-1", "gate.test")
@@ -337,7 +335,6 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 
 		It("publishes several L4 ports under one host as distinct per-port domains", func() {
 			readyNetwork()
-			readyZone("kube.example.com")
 			// Multi-port mail backend with named ports.
 			backend := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: ns},
@@ -347,7 +344,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(backend), backend)).To(Succeed())
 			backend.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.20"}}
 			Expect(k8sClient.Status().Update(ctx, backend)).To(Succeed())
-			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true, Network: ns, DNSZone: ns}, "mail")
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain}, "mail")
 			Expect(err).NotTo(HaveOccurred())
 
 			controls.AddProxyCluster("cluster-1", "gate.test")
@@ -380,7 +377,6 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 
 		It("defaults to the backend Service's first port when none is given", func() {
 			readyNetwork()
-			readyZone("kube.example.com")
 
 			// A multi-port LoadBalancer Service (http first); the LoadBalancer
 			// controller advertises it.
@@ -398,7 +394,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
 			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.21"}}
 			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
-			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, DefaultAdvertise: true, Network: ns, DNSZone: ns}, "app")
+			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain}, "app")
 			Expect(err).NotTo(HaveOccurred())
 
 			controls.AddProxyCluster("cluster-1", "gate.test")
@@ -553,9 +549,10 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 	Describe("Gateway API translation", func() {
 		It("creates a ReverseProxyCluster from a Gateway and translates HTTPRoutes onto it", func() {
 			all := "All"
-			// Cluster-scoped params = the GatewayClass "flavor".
+			// Per-Gateway params, in the Gateway's namespace, referenced via the
+			// Gateway's spec.infrastructure.parametersRef.
 			params := &nbv1alpha1.ReverseProxyClusterParameters{
-				ObjectMeta: metav1.ObjectMeta{Name: "params-" + ns},
+				ObjectMeta: metav1.ObjectMeta{Name: "params-" + ns, Namespace: ns},
 				Spec: nbv1alpha1.ReverseProxyClusterParametersSpec{
 					Private: true,
 					Groups:  []nbv1alpha1.GroupReference{{Name: &all}},
@@ -563,14 +560,11 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			}
 			Expect(k8sClient.Create(ctx, params)).To(Succeed())
 
+			// The operator owns the GatewayClass; here it carries only our
+			// controllerName (no parametersRef) and is marked Accepted.
 			gc := &gwv1.GatewayClass{
 				ObjectMeta: metav1.ObjectMeta{Name: "netbird-" + ns},
-				Spec: gwv1.GatewayClassSpec{
-					ControllerName: "netbird.io/byop-proxy",
-					ParametersRef: &gwv1.ParametersReference{
-						Group: "netbird.io", Kind: "ReverseProxyClusterParameters", Name: params.Name,
-					},
-				},
+				Spec:       gwv1.GatewayClassSpec{ControllerName: "netbird.io/gateway-controller"},
 			}
 			Expect(k8sClient.Create(ctx, gc)).To(Succeed())
 			_, err := reconcileOnce(&GatewayClassReconciler{Client: k8sClient}, gc.Name)
@@ -589,6 +583,11 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: ns},
 				Spec: gwv1.GatewaySpec{
 					GatewayClassName: gwv1.ObjectName(gc.Name),
+					Infrastructure: &gwv1.GatewayInfrastructure{
+						ParametersRef: &gwv1.LocalParametersReference{
+							Group: "netbird.io", Kind: "ReverseProxyClusterParameters", Name: params.Name,
+						},
+					},
 					Listeners: []gwv1.Listener{{
 						Name: "https", Protocol: gwv1.HTTPSProtocolType, Port: 443,
 						Hostname: ptrTo(gwv1.Hostname("*.ccbash.cloud")),
@@ -650,6 +649,30 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(route), route)).To(Succeed())
 			Expect(route.Status.Parents).To(HaveLen(1))
 			Expect(meta.IsStatusConditionTrue(route.Status.Parents[0].Conditions, string(gwv1.RouteConditionAccepted))).To(BeTrue())
+		})
+
+		It("creates and self-heals the operator-owned GatewayClass", func() {
+			className := "netbird-managed-" + ns
+			r := &GatewayClassReconciler{Client: k8sClient, ManagedClassName: className}
+
+			// Start seeds the class with our controllerName.
+			Expect(r.Start(ctx)).To(Succeed())
+			gc := &gwv1.GatewayClass{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: className}, gc)).To(Succeed())
+			Expect(gc.Spec.ControllerName).To(Equal(gwv1.GatewayController("netbird.io/gateway-controller")))
+
+			// Reconciling the live class marks it Accepted.
+			_, err := reconcileOnce(r, className)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: className}, gc)).To(Succeed())
+			Expect(meta.IsStatusConditionTrue(gc.Status.Conditions, string(gwv1.GatewayClassConditionStatusAccepted))).To(BeTrue())
+
+			// Deleting it out of band: the reconcile (fired by the delete) recreates it.
+			Expect(k8sClient.Delete(ctx, gc)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: className}, gc)).NotTo(Succeed())
+			_, err = reconcileOnce(r, className)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: className}, gc)).To(Succeed())
 		})
 	})
 

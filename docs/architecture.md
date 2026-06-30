@@ -53,7 +53,7 @@ supply the one typed API call).
 | `Network` | `POST /networks` | the network |
 | `NetworkRouter` | `POST /networks/{net}/routers` | **the routing peers — see below** |
 | `NetworkResource` | `POST /networks/{net}/resources` | one address (an LB IP) |
-| `DNSZone` | `POST /dns/zones` (adopt-or-create) | admin-authored |
+| `DNSZone` | `POST /dns/zones` (adopt-or-create) | admin-authored, or operator-owned (the LoadBalancer controller creates the LB zone, the ReverseProxyCluster its proxy zone) |
 | `DNSRecord` | `POST /dns/zones/{zone}/records` | A/AAAA/CNAME |
 | `ReverseProxyService` | `POST /reverse-proxies/services` | **the exposure layer — see below** |
 | `Group` / `SetupKey` | `groups` / `setup-keys` | unchanged |
@@ -218,11 +218,13 @@ These surfaces are pinned by `clusterproxy_controller_test.go`.
   `ReverseProxyService` (and `Network` + `NetworkRouter`).
   - *Re-introduced as a first-class Gateway controller in v0.12 (opt-in,
     `--enable-gateway-api`):* the operator is a **GatewayClass + Gateway
-    controller** (`controllerName: netbird.io/byop-proxy`). A `GatewayClass`
-    points its `parametersRef` at a cluster-scoped **`ReverseProxyClusterParameters`**
-    (the class "flavor": image/replicas/groups/private/serviceAnnotations). Each
-    **`Gateway`** of that class becomes one NetBird bring-your-own reverse proxy:
-    the operator derives `domain` (listener hostname minus `*.`), `clusterAddress`
+    controller** (`controllerName: netbird.io/gateway-controller`). The operator
+    **creates and owns its `GatewayClass`** (default `netbird`) and self-heals it.
+    Each **`Gateway`** of that class points `spec.infrastructure.parametersRef` at
+    a namespaced **`ReverseProxyClusterParameters`** (the "flavor":
+    image/replicas/groups/private/serviceAnnotations) and becomes one NetBird
+    bring-your-own reverse proxy: the operator derives `domain` (listener hostname
+    minus `*.`), `clusterAddress`
     (`gate.<domain>`) and the cert (listener `tls.certificateRefs`) from the
     Gateway's listeners, and **creates an owned `ReverseProxyCluster`** (proxy
     Deployment + LB Service + DNS + custom domain). The Gateway's `status`

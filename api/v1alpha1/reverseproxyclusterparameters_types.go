@@ -6,10 +6,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ReverseProxyClusterParametersSpec is the GatewayClass-level "flavor" shared by
-// every Gateway of that class: the parts of a ReverseProxyCluster that aren't
-// derived from a Gateway's own listeners. A Gateway derives its domain,
-// clusterAddress and cert from its listeners; these fill in the rest.
+// ReverseProxyClusterParametersSpec is the per-Gateway "flavor": the parts of a
+// ReverseProxyCluster that aren't derived from a Gateway's own listeners. A
+// Gateway derives its domain, clusterAddress and cert from its listeners and
+// references these (in its own namespace) via spec.infrastructure.parametersRef
+// to fill in the rest.
 type ReverseProxyClusterParametersSpec struct {
 	// Image overrides the netbird reverse-proxy image. Defaults to the operator's
 	// pinned image.
@@ -38,11 +39,11 @@ type ReverseProxyClusterParametersSpec struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
 
-// ReverseProxyClusterParameters is the implementation config a GatewayClass for
-// the NetBird BYOP proxy points at via parametersRef. It is cluster-scoped, like
-// the GatewayClass that references it.
+// ReverseProxyClusterParameters is the implementation config a Gateway of the
+// netbird.io/gateway-controller class points at via
+// spec.infrastructure.parametersRef. It is namespaced and must live in the
+// referencing Gateway's namespace.
 type ReverseProxyClusterParameters struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

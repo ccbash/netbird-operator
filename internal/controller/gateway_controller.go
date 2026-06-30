@@ -15,20 +15,24 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwv1ac "sigs.k8s.io/gateway-api/applyconfiguration/apis/v1"
 
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 	"github.com/netbirdio/kubernetes-operator/internal/k8sutil"
 	nbv1alpha1ac "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/api/v1alpha1"
 )
 
-// byopGatewayController is the GatewayClass controllerName the operator claims.
-// A GatewayClass set to it (with parametersRef -> a ReverseProxyClusterParameters)
-// turns each of its Gateways into a NetBird BYOP reverse-proxy instance.
-const byopGatewayController gwv1.GatewayController = "netbird.io/byop-proxy"
+// gatewayController is the GatewayClass controllerName the operator claims. The
+// operator creates and owns this class (see GatewayClassReconciler); each of its
+// Gateways becomes a NetBird reverse-proxy instance, configured by the
+// ReverseProxyClusterParameters the Gateway points at via
+// spec.infrastructure.parametersRef.
+const gatewayController gwv1.GatewayController = "netbird.io/gateway-controller"
 
-// paramsKind is the kind a BYOP GatewayClass.parametersRef must reference.
+// paramsKind is the kind a Gateway's infrastructure.parametersRef must reference.
 const paramsKind = "ReverseProxyClusterParameters"
 
 // httpRouteLabel marks the ReverseProxyService children translated from an
@@ -67,83 +71,95 @@ func proxyClusterNameForGateway(gw *gwv1.Gateway) string {
 	return "gateway-" + gw.Name
 }
 
-// resolveGatewayParams returns the ReverseProxyClusterParameters a BYOP
-// GatewayClass references, or an error describing why it can't be resolved.
-func resolveGatewayParams(ctx context.Context, c client.Client, gc *gwv1.GatewayClass) (*nbv1alpha1.ReverseProxyClusterParameters, error) {
-	ref := gc.Spec.ParametersRef
-	if ref == nil {
-		return nil, fmt.Errorf("parametersRef is required and must reference a %s", paramsKind)
+// resolveGatewayParams returns the ReverseProxyClusterParameters a Gateway
+// references via spec.infrastructure.parametersRef (a namespace-local ref, so
+// the parameters must live in the Gateway's namespace), or an error describing
+// why it can't be resolved.
+func resolveGatewayParams(ctx context.Context, c client.Client, gw *gwv1.Gateway) (*nbv1alpha1.ReverseProxyClusterParameters, error) {
+	if gw.Spec.Infrastructure == nil || gw.Spec.Infrastructure.ParametersRef == nil {
+		return nil, fmt.Errorf("spec.infrastructure.parametersRef is required and must reference a %s", paramsKind)
 	}
+	ref := gw.Spec.Infrastructure.ParametersRef
 	if string(ref.Group) != nbv1alpha1.GroupVersion.Group || string(ref.Kind) != paramsKind {
 		return nil, fmt.Errorf("parametersRef must reference %s.%s, got %s.%s", paramsKind, nbv1alpha1.GroupVersion.Group, ref.Kind, ref.Group)
 	}
 	params := &nbv1alpha1.ReverseProxyClusterParameters{}
-	if err := c.Get(ctx, client.ObjectKey{Name: ref.Name}, params); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: gw.Namespace, Name: ref.Name}, params); err != nil {
 		if kerrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%s %q not found", paramsKind, ref.Name)
+			return nil, fmt.Errorf("%s %q not found in namespace %q", paramsKind, ref.Name, gw.Namespace)
 		}
 		return nil, err
 	}
 	return params, nil
 }
 
-// GatewayClassReconciler accepts GatewayClasses that point at the BYOP proxy and
-// reflects whether their parametersRef resolves.
+// GatewayClassReconciler owns the operator's GatewayClass: it ensures the
+// managed class (ManagedClassName, controllerName gatewayController) exists,
+// recreates it if deleted, and marks any class of our controllerName Accepted.
 type GatewayClassReconciler struct {
 	client.Client
+	// ManagedClassName is the GatewayClass the operator creates and self-heals.
+	ManagedClassName string
 }
 
-// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses/status,verbs=get;update;patch
 
 func (r *GatewayClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	gc := &gwv1.GatewayClass{}
 	if err := r.Get(ctx, req.NamespacedName, gc); err != nil {
+		if kerrors.IsNotFound(err) && req.Name == r.ManagedClassName {
+			// Our managed class was deleted out of band — recreate it.
+			return ctrl.Result{}, r.ensure(ctx)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if gc.Spec.ControllerName != byopGatewayController {
+	if gc.Spec.ControllerName != gatewayController {
 		return ctrl.Result{}, nil
 	}
 
-	cond := metav1.Condition{
+	meta.SetStatusCondition(&gc.Status.Conditions, metav1.Condition{
 		Type:               string(gwv1.GatewayClassConditionStatusAccepted),
 		Status:             metav1.ConditionTrue,
 		Reason:             string(gwv1.GatewayClassReasonAccepted),
-		Message:            "Accepted by the NetBird BYOP reverse proxy",
+		Message:            "Accepted by the NetBird reverse-proxy gateway controller",
 		ObservedGeneration: gc.Generation,
-	}
-	if _, err := resolveGatewayParams(ctx, r.Client, gc); err != nil {
-		cond.Status = metav1.ConditionFalse
-		cond.Reason = string(gwv1.GatewayClassReasonInvalidParameters)
-		cond.Message = err.Error()
-	}
-	meta.SetStatusCondition(&gc.Status.Conditions, cond)
+	})
 	return ctrl.Result{}, r.Status().Update(ctx, gc)
+}
+
+// ensure server-side-applies the managed GatewayClass. It is idempotent and
+// safe to call at startup and on every recreate. A pre-existing class with a
+// different (immutable) controllerName makes the apply fail — surfaced to the
+// caller, which logs rather than crashes.
+func (r *GatewayClassReconciler) ensure(ctx context.Context) error {
+	if r.ManagedClassName == "" {
+		return nil
+	}
+	gcAC := gwv1ac.GatewayClass(r.ManagedClassName).
+		WithSpec(gwv1ac.GatewayClassSpec().
+			WithControllerName(gatewayController).
+			WithDescription("NetBird reverse-proxy gateway (operator-managed)"))
+	return r.Apply(ctx, gcAC, client.ForceOwnership)
 }
 
 func (r *GatewayClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gwv1.GatewayClass{}).
 		WithLogConstructor(logConstructor(mgr, "GatewayClass")).
-		Watches(&nbv1alpha1.ReverseProxyClusterParameters{}, handler.EnqueueRequestsFromMapFunc(r.classesForParams)).
 		Complete(r)
 }
 
-// classesForParams enqueues BYOP GatewayClasses whose parametersRef names the
-// changed parameters object.
-func (r *GatewayClassReconciler) classesForParams(ctx context.Context, obj client.Object) []reconcile.Request {
-	var list gwv1.GatewayClassList
-	if err := r.List(ctx, &list); err != nil {
-		return nil
+// Start ensures the managed GatewayClass exists once the manager is running. It
+// is a leader-elected manager.Runnable (a plain func is treated as one), so only
+// the active operator creates it; a failed apply (e.g. a stale class with the
+// old controllerName) is logged, not fatal — the user deletes the stale class
+// and the For-watch recreate path takes over.
+func (r *GatewayClassReconciler) Start(ctx context.Context) error {
+	if err := r.ensure(ctx); err != nil {
+		logf.FromContext(ctx).Error(err, "could not ensure managed GatewayClass", "name", r.ManagedClassName)
 	}
-	var reqs []reconcile.Request
-	for i := range list.Items {
-		gc := &list.Items[i]
-		if gc.Spec.ControllerName == byopGatewayController && gc.Spec.ParametersRef != nil && gc.Spec.ParametersRef.Name == obj.GetName() {
-			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKey{Name: gc.Name}})
-		}
-	}
-	return reqs
+	return nil
 }
 
 // GatewayReconciler turns a Gateway of a BYOP class into a ReverseProxyCluster
@@ -169,11 +185,11 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, client.ObjectKey{Name: string(gw.Spec.GatewayClassName)}, gc); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if gc.Spec.ControllerName != byopGatewayController {
+	if gc.Spec.ControllerName != gatewayController {
 		return ctrl.Result{}, nil // not ours
 	}
 
-	params, err := resolveGatewayParams(ctx, r.Client, gc)
+	params, err := resolveGatewayParams(ctx, r.Client, gw)
 	if err != nil {
 		return r.fail(ctx, gw, "InvalidParameters", err.Error())
 	}
@@ -368,16 +384,19 @@ func (r *GatewayReconciler) gatewaysForClass(ctx context.Context, obj client.Obj
 	return reqs
 }
 
-// gatewaysForParams enqueues all Gateways of any BYOP class referencing the
-// changed parameters object (reconcile filters to ours, so enqueue broadly).
-func (r *GatewayReconciler) gatewaysForParams(ctx context.Context, _ client.Object) []reconcile.Request {
+// gatewaysForParams enqueues Gateways in the changed parameters' namespace whose
+// infrastructure.parametersRef names it (the reconcile filters to our class).
+func (r *GatewayReconciler) gatewaysForParams(ctx context.Context, obj client.Object) []reconcile.Request {
 	var list gwv1.GatewayList
-	if err := r.List(ctx, &list); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
 		return nil
 	}
-	reqs := make([]reconcile.Request, 0, len(list.Items))
+	var reqs []reconcile.Request
 	for i := range list.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		infra := list.Items[i].Spec.Infrastructure
+		if infra != nil && infra.ParametersRef != nil && infra.ParametersRef.Name == obj.GetName() {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
 	}
 	return reqs
 }
@@ -471,7 +490,7 @@ func (r *HTTPRouteReconciler) resolveGateway(ctx context.Context, route *gwv1.HT
 			}
 			return nil, p, false, err
 		}
-		if gc.Spec.ControllerName != byopGatewayController {
+		if gc.Spec.ControllerName != gatewayController {
 			continue
 		}
 		return gw, p, true, nil
@@ -511,7 +530,7 @@ func (r *HTTPRouteReconciler) setAccepted(ctx context.Context, route *gwv1.HTTPR
 	}
 	idx := -1
 	for i := range route.Status.Parents {
-		if route.Status.Parents[i].ControllerName == byopGatewayController {
+		if route.Status.Parents[i].ControllerName == gatewayController {
 			idx = i
 			break
 		}
@@ -519,7 +538,7 @@ func (r *HTTPRouteReconciler) setAccepted(ctx context.Context, route *gwv1.HTTPR
 	if idx < 0 {
 		route.Status.Parents = append(route.Status.Parents, gwv1.RouteParentStatus{
 			ParentRef:      parent,
-			ControllerName: byopGatewayController,
+			ControllerName: gatewayController,
 		})
 		idx = len(route.Status.Parents) - 1
 	}
