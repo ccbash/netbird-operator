@@ -64,7 +64,7 @@ func applyNetwork(ctx context.Context, nb *netbird.Client, _ client.Client, net 
 	return nil
 }
 
-func deleteNetwork(ctx context.Context, nb *netbird.Client, net *nbv1alpha1.Network) error {
+func deleteNetwork(ctx context.Context, nb *netbird.Client, _ client.Client, net *nbv1alpha1.Network) error {
 	if net.Status.NetworkID == "" {
 		return nil
 	}

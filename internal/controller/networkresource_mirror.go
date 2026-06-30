@@ -89,7 +89,7 @@ func applyNetworkResource(ctx context.Context, nb *netbird.Client, c client.Clie
 	return nil
 }
 
-func deleteNetworkResource(ctx context.Context, nb *netbird.Client, nr *nbv1alpha1.NetworkResource) error {
+func deleteNetworkResource(ctx context.Context, nb *netbird.Client, _ client.Client, nr *nbv1alpha1.NetworkResource) error {
 	if nr.Status.ResourceID == "" || nr.Status.NetworkID == "" {
 		return nil
 	}

@@ -95,9 +95,39 @@ func applyDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *n
 	return nil
 }
 
-func deleteDNSZone(ctx context.Context, nb *netbird.Client, z *nbv1alpha1.DNSZone) error {
+func deleteDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *nbv1alpha1.DNSZone) error {
 	if z.Status.ZoneID == "" {
 		return nil
 	}
+	// applyDNSZone adopts a NetBird zone by Name, so two DNSZone CRs with the same
+	// spec.Name share one zone id. Don't delete the shared zone while another
+	// (non-deleting) CR still owns the same name — that would wipe it out from
+	// under the survivor; let the last CR standing remove it.
+	shared, err := dnsZoneNameSharedByOther(ctx, c, z)
+	if err != nil {
+		return err
+	}
+	if shared {
+		return nil
+	}
 	return nb.DNSZones.DeleteZone(ctx, z.Status.ZoneID)
+}
+
+// dnsZoneNameSharedByOther reports whether another (non-deleting) DNSZone CR
+// declares the same spec.Name, meaning it adopted the same NetBird zone.
+func dnsZoneNameSharedByOther(ctx context.Context, c client.Client, z *nbv1alpha1.DNSZone) (bool, error) {
+	var list nbv1alpha1.DNSZoneList
+	if err := c.List(ctx, &list); err != nil {
+		return false, err
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.UID == z.UID || !other.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if other.Spec.Name == z.Spec.Name {
+			return true, nil
+		}
+	}
+	return false, nil
 }

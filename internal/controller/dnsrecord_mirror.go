@@ -95,7 +95,7 @@ func applyDNSRecord(ctx context.Context, nb *netbird.Client, c client.Client, re
 	return nil
 }
 
-func deleteDNSRecord(ctx context.Context, nb *netbird.Client, rec *nbv1alpha1.DNSRecord) error {
+func deleteDNSRecord(ctx context.Context, nb *netbird.Client, _ client.Client, rec *nbv1alpha1.DNSRecord) error {
 	if rec.Status.RecordID == "" || rec.Status.ZoneID == "" {
 		return nil
 	}

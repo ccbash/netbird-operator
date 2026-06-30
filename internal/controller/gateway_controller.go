@@ -4,6 +4,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -36,8 +38,35 @@ const gatewayController gwv1.GatewayController = "netbird.io/gateway-controller"
 const paramsKind = "ReverseProxyClusterParameters"
 
 // httpRouteLabel marks the ReverseProxyService children translated from an
-// HTTPRoute (value = the route name), for prune and lookup.
+// HTTPRoute (value = the route's safe-name, see httpRouteLabelValue), for prune
+// and lookup.
 const httpRouteLabel = "gateway.netbird.io/httproute"
+
+// Kubernetes name/label-value length caps.
+const (
+	labelValueMaxLen = 63
+	objectNameMaxLen = 253
+)
+
+// safeName truncates s to max bytes, replacing the tail with a short hash of the
+// full value when it must cut. The result stays unique per distinct input and
+// ends on an alphanumeric (valid for both DNS-1123 names and label values).
+func safeName(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	sum := sha256.Sum256([]byte(s))
+	suffix := "-" + hex.EncodeToString(sum[:])[:8]
+	head := strings.TrimRight(s[:max-len(suffix)], "-._")
+	return head + suffix
+}
+
+// httpRouteLabelValue is the label value stamped on a route's translated
+// children. It must equal what prune lists on, and fit the 63-char label cap (an
+// HTTPRoute name may be up to 253).
+func httpRouteLabelValue(route *gwv1.HTTPRoute) string {
+	return safeName(route.Name, labelValueMaxLen)
+}
 
 // gatewayProxy is the per-Gateway proxy config derived from its listeners.
 type gatewayProxy struct {
@@ -436,23 +465,35 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	// Fail closed: if a rule uses a path match we can't faithfully represent
+	// (Exact/RegularExpression), reject the whole route rather than silently
+	// widening it to "/" and over-exposing the backend.
+	backends, ok := routeBackends(route)
+	if !ok {
+		if err := r.prune(ctx, route, nil); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.setRouteCondition(ctx, route, parent, metav1.ConditionFalse,
+			gwv1.RouteReasonUnsupportedValue, "only PathPrefix path matches are supported")
+	}
+
 	desired := map[string]bool{}
 	for _, hostname := range route.Spec.Hostnames {
-		if !gatewayAdmitsRoute(gw, route, string(hostname)) {
-			continue // hostname doesn't match a listener / namespace not allowed
+		if !gatewayAdmitsRoute(gw, route, string(hostname), cfg.listener) {
+			continue // hostname doesn't match the proxy listener / namespace not allowed
 		}
 		name := routeChildName(route.Name, string(hostname))
 		desired[name] = true
 		rpsAC := nbv1alpha1ac.ReverseProxyService(name, route.Namespace).
 			WithOwnerReferences(ownerRef).
-			WithLabels(map[string]string{httpRouteLabel: route.Name}).
+			WithLabels(map[string]string{httpRouteLabel: httpRouteLabelValue(route)}).
 			WithSpec(nbv1alpha1ac.ReverseProxyServiceSpec().
 				WithDomain(string(hostname)).
 				WithProxyCluster(cfg.clusterAddress).
 				// Pass the original Host to the backend, as a Gateway/kgateway
 				// would — apps front themselves by their public hostname.
 				WithPassHostHeader(true).
-				WithBackends(routeBackends(route)...))
+				WithBackends(backends...))
 		if err := r.Apply(ctx, rpsAC, client.ForceOwnership); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -461,8 +502,11 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	accepted := len(desired) > 0
-	if err := r.setAccepted(ctx, route, parent, accepted); err != nil {
+	status, reason, msg := metav1.ConditionTrue, gwv1.RouteReasonAccepted, "Translated to a NetBird ReverseProxyService"
+	if len(desired) == 0 {
+		status, reason, msg = metav1.ConditionFalse, gwv1.RouteReasonNoMatchingListenerHostname, "no route hostname matches the Gateway's proxy listener"
+	}
+	if err := r.setRouteCondition(ctx, route, parent, status, reason, msg); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: resyncInterval}, nil
@@ -502,7 +546,7 @@ func (r *HTTPRouteReconciler) resolveGateway(ctx context.Context, route *gwv1.HT
 // (desired nil drops them all).
 func (r *HTTPRouteReconciler) prune(ctx context.Context, route *gwv1.HTTPRoute, desired map[string]bool) error {
 	var list nbv1alpha1.ReverseProxyServiceList
-	if err := r.List(ctx, &list, client.InNamespace(route.Namespace), client.MatchingLabels{httpRouteLabel: route.Name}); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(route.Namespace), client.MatchingLabels{httpRouteLabel: httpRouteLabelValue(route)}); err != nil {
 		return err
 	}
 	for i := range list.Items {
@@ -515,18 +559,15 @@ func (r *HTTPRouteReconciler) prune(ctx context.Context, route *gwv1.HTTPRoute, 
 	return nil
 }
 
-func (r *HTTPRouteReconciler) setAccepted(ctx context.Context, route *gwv1.HTTPRoute, parent gwv1.ParentReference, accepted bool) error {
+// setRouteCondition sets the Accepted condition on the route's parent status
+// entry for our controller, with the given status/reason/message.
+func (r *HTTPRouteReconciler) setRouteCondition(ctx context.Context, route *gwv1.HTTPRoute, parent gwv1.ParentReference, status metav1.ConditionStatus, reason gwv1.RouteConditionReason, message string) error {
 	cond := metav1.Condition{
 		Type:               string(gwv1.RouteConditionAccepted),
-		Status:             metav1.ConditionTrue,
-		Reason:             string(gwv1.RouteReasonAccepted),
-		Message:            "Translated to a NetBird ReverseProxyService",
+		Status:             status,
+		Reason:             string(reason),
+		Message:            message,
 		ObservedGeneration: route.Generation,
-	}
-	if !accepted {
-		cond.Status = metav1.ConditionFalse
-		cond.Reason = string(gwv1.RouteReasonNoMatchingListenerHostname)
-		cond.Message = "no route hostname matches a Gateway listener"
 	}
 	idx := -1
 	for i := range route.Status.Parents {
@@ -589,17 +630,17 @@ func routeReferencesGateway(route *gwv1.HTTPRoute, gw *gwv1.Gateway) bool {
 }
 
 // gatewayAdmitsRoute reports whether the route (for the given hostname) attaches
-// to the Gateway: some listener's hostname matches and its allowedRoutes permits
-// the route's namespace.
-func gatewayAdmitsRoute(gw *gwv1.Gateway, route *gwv1.HTTPRoute, hostname string) bool {
+// to the Gateway's proxy listener: it must match *that* listener (the one that
+// defines the cluster's domain/clusterAddress, not just any listener) and its
+// allowedRoutes must permit the route's namespace. Restricting to the proxy
+// listener avoids admitting a route under a second listener's domain and then
+// registering it against the first listener's (wrong) proxy cluster.
+func gatewayAdmitsRoute(gw *gwv1.Gateway, route *gwv1.HTTPRoute, hostname string, proxyListener gwv1.SectionName) bool {
 	for _, l := range gw.Spec.Listeners {
-		if !listenerHostnameMatches(l.Hostname, hostname) {
+		if l.Name != proxyListener {
 			continue
 		}
-		if !allowedRoutesPermits(gw, l, route.Namespace) {
-			continue
-		}
-		return true
+		return listenerHostnameMatches(l.Hostname, hostname) && allowedRoutesPermits(gw, l, route.Namespace)
 	}
 	return false
 }
@@ -634,11 +675,17 @@ func allowedRoutesPermits(gw *gwv1.Gateway, l gwv1.Listener, routeNamespace stri
 }
 
 // routeBackends maps an HTTPRoute's rules onto ReverseProxyService backends: one
-// backend per (rule, backendRef), carrying the rule's PathPrefix as the path.
-func routeBackends(route *gwv1.HTTPRoute) []*nbv1alpha1ac.ReverseProxyBackendApplyConfiguration {
+// backend per (rule, backendRef), carrying the rule's PathPrefix as the path. ok
+// is false when a rule uses a path match type we can't represent (Exact /
+// RegularExpression) — the caller fails the route closed rather than widening it.
+// (Header/method matches are not translated; only the path prefix is.)
+func routeBackends(route *gwv1.HTTPRoute) ([]*nbv1alpha1ac.ReverseProxyBackendApplyConfiguration, bool) {
 	var out []*nbv1alpha1ac.ReverseProxyBackendApplyConfiguration
 	for _, rule := range route.Spec.Rules {
-		path := rulePath(rule)
+		path, ok := rulePath(rule)
+		if !ok {
+			return nil, false
+		}
 		for _, br := range rule.BackendRefs {
 			b := nbv1alpha1ac.ReverseProxyBackend().
 				WithServiceRef(corev1.LocalObjectReference{Name: string(br.Name)}).
@@ -649,27 +696,33 @@ func routeBackends(route *gwv1.HTTPRoute) []*nbv1alpha1ac.ReverseProxyBackendApp
 			out = append(out, b)
 		}
 	}
-	return out
+	return out, true
 }
 
-// rulePath returns the rule's first PathPrefix match value, or "/".
-func rulePath(rule gwv1.HTTPRouteRule) string {
+// rulePath returns the rule's PathPrefix match value (or "/" when the rule has no
+// path match). ok is false for an Exact/RegularExpression path match, which the
+// NetBird proxy's prefix-only model can't faithfully represent.
+func rulePath(rule gwv1.HTTPRouteRule) (string, bool) {
 	for _, m := range rule.Matches {
-		if m.Path != nil && m.Path.Type != nil && *m.Path.Type == gwv1.PathMatchPathPrefix && m.Path.Value != nil {
-			return *m.Path.Value
+		if m.Path == nil || m.Path.Type == nil {
+			continue
+		}
+		if *m.Path.Type != gwv1.PathMatchPathPrefix {
+			return "", false
+		}
+		if m.Path.Value != nil {
+			return *m.Path.Value, true
 		}
 	}
-	return "/"
+	return "/", true
 }
 
 // routeChildName derives a DNS-safe ReverseProxyService name from the route name
-// and a hostname (which carries dots and may be a wildcard).
+// and a hostname (which carries dots and may be a wildcard). Over-long names are
+// hash-truncated (safeName) so distinct routes/hostnames don't collide and the
+// result never ends on an invalid character.
 func routeChildName(routeName, hostname string) string {
 	h := strings.ReplaceAll(hostname, "*", "wildcard")
 	h = strings.ReplaceAll(h, ".", "-")
-	name := routeName + "-" + h
-	if len(name) > 253 {
-		name = name[:253]
-	}
-	return name
+	return safeName(routeName+"-"+h, objectNameMaxLen)
 }

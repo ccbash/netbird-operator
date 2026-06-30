@@ -543,6 +543,21 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(rpc.Status.ClusterAddress).To(Equal("gate.ccbash.cloud"))
 			Expect(rpc.Status.DomainID).NotTo(BeEmpty()) // custom domain registered
 			Expect(meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+
+			// Custom domain deleted out of band: the next reconcile re-registers it
+			// (re-derived from the live list each pass) instead of staying stuck
+			// validating a registration that no longer exists.
+			oldDomainID := rpc.Status.DomainID
+			Expect(nbClient.ReverseProxyDomains.Delete(ctx, oldDomainID)).To(Succeed())
+			_, err = reconcileOnce(r, "gate")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rpc), rpc)).To(Succeed())
+			Expect(rpc.Status.DomainID).NotTo(BeEmpty())
+			Expect(rpc.Status.DomainID).NotTo(Equal(oldDomainID)) // freshly recreated
+			domains, err := nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(HaveLen(1))
+			Expect(domains[0].Domain).To(Equal("ccbash.cloud"))
 		})
 	})
 

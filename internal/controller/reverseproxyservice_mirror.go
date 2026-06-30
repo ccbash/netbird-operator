@@ -172,7 +172,7 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	return nil
 }
 
-func deleteReverseProxyService(ctx context.Context, nb *netbird.Client, rps *nbv1alpha1.ReverseProxyService) error {
+func deleteReverseProxyService(ctx context.Context, nb *netbird.Client, _ client.Client, rps *nbv1alpha1.ReverseProxyService) error {
 	if rps.Status.ServiceID == "" {
 		return nil
 	}

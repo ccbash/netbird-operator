@@ -46,7 +46,7 @@ type mirror[T mirrorObject] struct {
 	finalizer string
 	newObject func() T
 	apply     func(ctx context.Context, nb *netbird.Client, c client.Client, obj T) error
-	del       func(ctx context.Context, nb *netbird.Client, obj T) error
+	del       func(ctx context.Context, nb *netbird.Client, c client.Client, obj T) error
 	// inUseMsg is logged (and emitted as an event) when a delete is rejected
 	// because the NetBird object is still referenced; the delete is retried.
 	inUseMsg string
@@ -98,7 +98,7 @@ func (r *MirrorReconciler[T]) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *MirrorReconciler[T]) reconcileDelete(ctx context.Context, sp *patch.SerialPatcher, obj T) (ctrl.Result, error) {
-	err := r.m.del(ctx, r.Netbird, obj)
+	err := r.m.del(ctx, r.Netbird, r.Client, obj)
 	switch {
 	case err == nil, netbird.IsNotFound(err):
 		// deleted, or already gone
