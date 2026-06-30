@@ -78,6 +78,8 @@ linters:
 
         - pkg: sigs.k8s.io/gateway-api/apis/v1
           alias: gwv1
+        - pkg: sigs.k8s.io/gateway-api/applyconfiguration/apis/v1
+          alias: gwv1ac
         - pkg: sigs.k8s.io/gateway-api/apis/v1alpha2
           alias: gwv1alpha2
       no-extra-aliases: true

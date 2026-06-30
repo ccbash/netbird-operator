@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,11 +39,21 @@ type LoadBalancerReconciler struct {
 	client.Client
 
 	DefaultAdvertise bool
-	// Network and DNSZone name the single NetBird Network and DNSZone that
-	// advertised LoadBalancer Services attach to. They are explicit (operator
-	// config); the proxy's own zones are never used for LB exposure.
+	// Namespace is the operator's own namespace, where the operator-owned
+	// LoadBalancer DNSZone CR lives.
+	Namespace string
+	// Network names the single NetBird Network advertised LoadBalancer Services
+	// attach their NetworkResource to. It is explicit operator config (created
+	// out of band, paired with its NetworkRouter); the proxy's own zones are
+	// never used for LB exposure.
 	Network string
+	// DNSZone is the apex domain of the operator-owned DNSZone that advertised
+	// records land in. The operator creates and owns this zone (see ensureZone);
+	// the CR is named after the domain.
 	DNSZone string
+	// DNSZoneGroups are the NetBird distribution groups whose peers receive the
+	// LoadBalancer DNSZone, so they can resolve its records.
+	DNSZoneGroups []string
 	// DefaultGroups are the NetBird groups advertised resources join when a
 	// Service/namespace sets no netbird.io/groups annotation.
 	DefaultGroups []string
@@ -80,7 +91,7 @@ func (r *LoadBalancerReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return r.dependencyRequeue(svc, err)
 	}
-	zone, err := r.resolveZone(ctx)
+	zone, err := r.ensureZone(ctx)
 	if err != nil {
 		return r.dependencyRequeue(svc, err)
 	}
@@ -189,17 +200,36 @@ func (r *LoadBalancerReconciler) resolveNetwork(ctx context.Context) (*nbv1alpha
 	return nil, fmt.Errorf("%w: Network %q not found", errDependencyNotReady, r.Network)
 }
 
-func (r *LoadBalancerReconciler) resolveZone(ctx context.Context) (*nbv1alpha1.DNSZone, error) {
-	var list nbv1alpha1.DNSZoneList
-	if err := r.List(ctx, &list); err != nil {
+// ensureZone server-side-applies the operator-owned DNSZone that advertised
+// LoadBalancer records land in — named after, and resolving, the configured
+// domain — and returns it. The zone is a cluster singleton owned by the
+// operator (not by any Service), so it persists across Service deletions and
+// self-heals if deleted out of band. The DNSZone mirror reconciler turns it
+// into a NetBird zone; the DNSRecord children wait on its readiness through the
+// normal dependency requeue.
+func (r *LoadBalancerReconciler) ensureZone(ctx context.Context) (*nbv1alpha1.DNSZone, error) {
+	if r.DNSZone == "" {
+		return nil, fmt.Errorf("%w: no LoadBalancer DNSZone configured", errDependencyNotReady)
+	}
+
+	spec := nbv1alpha1ac.DNSZoneSpec().
+		WithName(r.DNSZone).
+		WithDomain(r.DNSZone).
+		WithEnabled(true)
+	if groups := groupReferences(r.DNSZoneGroups); len(groups) > 0 {
+		spec = spec.WithDistributionGroups(groups...)
+	}
+	zoneAC := nbv1alpha1ac.DNSZone(r.DNSZone, r.Namespace).WithSpec(spec)
+	if err := r.Apply(ctx, zoneAC, client.ForceOwnership); err != nil {
 		return nil, err
 	}
-	for i := range list.Items {
-		if list.Items[i].Name == r.DNSZone {
-			return &list.Items[i], nil
-		}
-	}
-	return nil, fmt.Errorf("%w: DNSZone %q not found", errDependencyNotReady, r.DNSZone)
+
+	// Construct from the known config rather than re-reading: the only fields
+	// callers need (name, namespace, domain) are exactly what we just applied.
+	return &nbv1alpha1.DNSZone{
+		ObjectMeta: metav1.ObjectMeta{Name: r.DNSZone, Namespace: r.Namespace},
+		Spec:       nbv1alpha1.DNSZoneSpec{Name: r.DNSZone, Domain: r.DNSZone, Enabled: true},
+	}, nil
 }
 
 func (r *LoadBalancerReconciler) SetupWithManager(mgr ctrl.Manager) error {

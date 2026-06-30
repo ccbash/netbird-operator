@@ -53,7 +53,7 @@ supply the one typed API call).
 | `Network` | `POST /networks` | the network |
 | `NetworkRouter` | `POST /networks/{net}/routers` | **the routing peers — see below** |
 | `NetworkResource` | `POST /networks/{net}/resources` | one address (an LB IP) |
-| `DNSZone` | `POST /dns/zones` (adopt-or-create) | admin-authored |
+| `DNSZone` | `POST /dns/zones` (adopt-or-create) | admin-authored, or operator-owned (the LoadBalancer controller creates the LB zone, the ReverseProxyCluster its proxy zone) |
 | `DNSRecord` | `POST /dns/zones/{zone}/records` | A/AAAA/CNAME |
 | `ReverseProxyService` | `POST /reverse-proxies/services` | **the exposure layer — see below** |
 | `Group` / `SetupKey` | `groups` / `setup-keys` | unchanged |
@@ -216,12 +216,22 @@ These surfaces are pinned by `clusterproxy_controller_test.go`.
   `gateway.netbird.io/Network` listener trick. The operator consumes *existing*
   LoadBalancer Services (Gateway-provisioned or bare); the opt-in is authoring a
   `ReverseProxyService` (and `Network` + `NetworkRouter`).
-  - *Re-introduced differently in v0.12 (opt-in, `--enable-gateway-api`):* the
-    operator does not run a Gateway, but it can act as a **GatewayClass
-    controller** (`netbird.io/byop-proxy`) that deploys a NetBird
-    bring-your-own reverse proxy (`ReverseProxyCluster`) and **translates
-    `HTTPRoute`s into `ReverseProxyService`s**. The proxy — not the operator — is
-    the data plane. See [`design/byop-gateway.md`](design/byop-gateway.md).
+  - *Re-introduced as a first-class Gateway controller in v0.12 (opt-in,
+    `--enable-gateway-api`):* the operator is a **GatewayClass + Gateway
+    controller** (`controllerName: netbird.io/gateway-controller`). The operator
+    **creates and owns its `GatewayClass`** (default `netbird`) and self-heals it.
+    Each **`Gateway`** of that class points `spec.infrastructure.parametersRef` at
+    a namespaced **`ReverseProxyClusterParameters`** (the "flavor":
+    image/replicas/groups/private/serviceAnnotations) and becomes one NetBird
+    bring-your-own reverse proxy: the operator derives `domain` (listener hostname
+    minus `*.`), `clusterAddress`
+    (`gate.<domain>`) and the cert (listener `tls.certificateRefs`) from the
+    Gateway's listeners, and **creates an owned `ReverseProxyCluster`** (proxy
+    Deployment + LB Service + DNS + custom domain). The Gateway's `status`
+    (`Accepted`, `Programmed`, `.addresses` = the proxy LB IP, per-listener
+    conditions) reflects that cluster. **`HTTPRoute`s** attached to the Gateway
+    become **`ReverseProxyService`s** targeting it. The proxy — not the operator —
+    is the data plane. See [`design/byop-gateway.md`](design/byop-gateway.md).
 - **ClusterIP exposure** — per-backend ClusterIP `NetworkResource`s and the
   `<svc>-<ns>` records pointing at ClusterIPs. Replaced by LB-IP records.
 - **The Gateway-owned DNSZone** — DNS is admin-managed.

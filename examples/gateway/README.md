@@ -87,8 +87,9 @@ two ways:
 
 ## Opt-in: the operator as the gateway (NetBird BYOP proxy)
 
-Run the operator with `--enable-gateway-api` and it becomes a **GatewayClass
-controller** (`controllerName: netbird.io/byop-proxy`). Instead of standing aside,
+Run the operator with `--enable-gateway-api` and it becomes a **Gateway API
+controller** (`controllerName: netbird.io/gateway-controller`). It **creates and
+owns its own `GatewayClass`** (default name `netbird`). Instead of standing aside,
 it:
 
 1. Deploys + enrols a NetBird **bring-your-own reverse proxy** via a
@@ -99,7 +100,9 @@ it:
    directly at their in-cluster ClusterIP).
 
 This replaces an in-cluster gateway like kgateway with a mesh-native proxy while
-keeping your `Gateway`/`HTTPRoute` manifests. Point the `GatewayClass`'s
-`parametersRef` at the `ReverseProxyCluster`. Design + phasing:
+keeping your `Gateway`/`HTTPRoute` manifests. Author the `Gateway` with a
+`spec.infrastructure.parametersRef` pointing at a `ReverseProxyClusterParameters`
+in the Gateway's namespace (image/replicas/groups/private/serviceAnnotations).
+Design + phasing:
 [`../../docs/design/byop-gateway.md`](../../docs/design/byop-gateway.md). The
 Gateway API CRDs are a cluster prerequisite (not shipped in the chart).

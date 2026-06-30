@@ -158,52 +158,35 @@ netbirdAPI:
 
 #routingClientImage: "netbirdio/netbird:latest"
 
-# Advertise Service type=LoadBalancer into NetBird by default. Override per
-# namespace/Service with the annotation netbird.io/advertise: "true"|"false".
-advertiseLoadBalancers: true
-
-# Comma-separated NetBird groups that advertised resources join by default, so
-# access policies can target them. Override per namespace/Service with the
-# annotation netbird.io/groups. Empty leaves resources group-less (not
-# policy-targetable).
-defaultResourceGroups: ""
-
-# The single NetBird Network and DNSZone that advertised type=LoadBalancer
-# Services attach to: their NetworkResource joins this Network and their
-# <svc>-<ns>.<zone> DNSRecord lands in this DNSZone. These are explicit — proxy
-# (ReverseProxyCluster) zones are never used for LoadBalancer exposure.
+# Everything that drives Service type=LoadBalancer exposure into NetBird.
 loadBalancer:
+  # Advertise type=LoadBalancer Services by default. Override per ns/Service with
+  # the annotation netbird.io/advertise: "true"|"false".
+  advertise: true
+  # Comma-separated NetBird groups the advertised NetworkResource joins (so access
+  # policies can target it). Override with the netbird.io/groups annotation.
+  resourceGroups: ""
+  # The NetBird Network the NetworkResource attaches to. Created elsewhere,
+  # paired with its NetworkRouter (the routing-peer DaemonSet).
   network: ""
-  dnsZone: ""
+  # The DNSZone the <svc>-<ns>.<zone> records land in. The operator creates and
+  # owns this zone (named after the domain); set domain to enable it.
+  # distributionGroups are the NetBird groups whose peers receive the zone (so
+  # they can resolve its records).
+  dnsZone:
+    domain: ""
+    distributionGroups: []
 
-# Enable the opt-in Gateway API -> ReverseProxyService translation: the
-# GatewayClass controller (controllerName netbird.io/byop-proxy) and the
-# HTTPRoute controller. Requires the Gateway API CRDs installed in the cluster.
+# Enable the Gateway API controllers (Gateway/HTTPRoute →
+# ReverseProxyCluster/ReverseProxyService). Requires the Gateway API CRDs in the
+# cluster. The operator creates and owns its GatewayClass (named gatewayClassName
+# below). Author the Gateway + its ReverseProxyClusterParameters (in the
+# Gateway's namespace, referenced via spec.infrastructure.parametersRef) as your
+# own manifests — they carry your domain, cert issuer, and access groups.
 enableGatewayAPI: false
-
-# Optionally deploy a cluster-wide NetBird bring-your-own reverse proxy
-# (ReverseProxyCluster) into the operator's namespace. The operator deploys +
-# enrols the proxy and registers it as the account's own proxy cluster;
-# ReverseProxyServices (and translated HTTPRoutes) target it.
-reverseProxyCluster:
-  enabled: false
-  # The domain the proxy listens on / serves, e.g. "example.com". Used as the
-  # cluster address and the DNS zone; service domains under it derive the cluster.
-  domain: ""
-  # Optional cluster address, if it should differ from domain (defaults to domain).
-  clusterAddress: ""
-  # cert-manager TLS Secret (tls.crt/tls.key) in this namespace, mounted as the
-  # proxy's static certificate (the proxy does no ACME).
-  certSecretName: ""
-  # NetBird groups the proxy's LoadBalancer resource joins.
-  groups: []
-  # Enable NetBird-Only (private) services: the proxy runs an embedded netbird
-  # client (userspace WireGuard, no extra privileges) so the cluster can serve
-  # mesh-only services. Group-based services work regardless.
-  private: false
-  # Annotations for the proxy's LoadBalancer Service (e.g. pin an LB-IPAM pool,
-  # or netbird.io/dns-zone when more than one DNSZone exists).
-  serviceAnnotations: {}
+# Name of the operator-owned GatewayClass (your Gateways set this as
+# gatewayClassName). Only created when enableGatewayAPI is true.
+gatewayClassName: netbird
 
 general:
   # General labels, applied to all created K8s resources

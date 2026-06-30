@@ -4,6 +4,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,47 +14,133 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwv1ac "sigs.k8s.io/gateway-api/applyconfiguration/apis/v1"
 
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 	"github.com/netbirdio/kubernetes-operator/internal/k8sutil"
 	nbv1alpha1ac "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/api/v1alpha1"
 )
 
-// byopGatewayController is the GatewayClass controllerName the operator claims.
-// A GatewayClass set to it routes its Gateways' HTTPRoutes through the NetBird
-// BYOP reverse proxy (a ReverseProxyCluster, referenced via the class's
-// parametersRef).
-const byopGatewayController gwv1.GatewayController = "netbird.io/byop-proxy"
+// gatewayController is the GatewayClass controllerName the operator claims. The
+// operator creates and owns this class (see GatewayClassReconciler); each of its
+// Gateways becomes a NetBird reverse-proxy instance, configured by the
+// ReverseProxyClusterParameters the Gateway points at via
+// spec.infrastructure.parametersRef.
+const gatewayController gwv1.GatewayController = "netbird.io/gateway-controller"
+
+// paramsKind is the kind a Gateway's infrastructure.parametersRef must reference.
+const paramsKind = "ReverseProxyClusterParameters"
 
 // httpRouteLabel marks the ReverseProxyService children translated from an
 // HTTPRoute (value = the route name), for prune and lookup.
 const httpRouteLabel = "gateway.netbird.io/httproute"
 
-// GatewayClassReconciler accepts GatewayClasses that point at the BYOP proxy.
-type GatewayClassReconciler struct {
-	client.Client
+// gatewayProxy is the per-Gateway proxy config derived from its listeners.
+type gatewayProxy struct {
+	domain         string // listener hostname minus "*."  -> ccbash.io
+	clusterAddress string // convention: "gate." + domain   -> gate.ccbash.io
+	certSecret     string // listener tls.certificateRefs[0]
+	listener       gwv1.SectionName
 }
 
-// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses,verbs=get;list;watch
+// gatewayProxyConfig derives the proxy config from the first TLS-terminating
+// listener that has a hostname and a certificate. ok is false when no such
+// listener exists (the Gateway can't front a proxy).
+func gatewayProxyConfig(gw *gwv1.Gateway) (gatewayProxy, bool) {
+	for _, l := range gw.Spec.Listeners {
+		tlsListener := l.Protocol == gwv1.HTTPSProtocolType || l.Protocol == gwv1.TLSProtocolType
+		if !tlsListener || l.Hostname == nil || *l.Hostname == "" || l.TLS == nil || len(l.TLS.CertificateRefs) == 0 {
+			continue
+		}
+		domain := strings.TrimPrefix(string(*l.Hostname), "*.")
+		return gatewayProxy{
+			domain:         domain,
+			clusterAddress: "gate." + domain,
+			certSecret:     string(l.TLS.CertificateRefs[0].Name),
+			listener:       l.Name,
+		}, true
+	}
+	return gatewayProxy{}, false
+}
+
+func proxyClusterNameForGateway(gw *gwv1.Gateway) string {
+	return "gateway-" + gw.Name
+}
+
+// resolveGatewayParams returns the ReverseProxyClusterParameters a Gateway
+// references via spec.infrastructure.parametersRef (a namespace-local ref, so
+// the parameters must live in the Gateway's namespace), or an error describing
+// why it can't be resolved.
+func resolveGatewayParams(ctx context.Context, c client.Client, gw *gwv1.Gateway) (*nbv1alpha1.ReverseProxyClusterParameters, error) {
+	if gw.Spec.Infrastructure == nil || gw.Spec.Infrastructure.ParametersRef == nil {
+		return nil, fmt.Errorf("spec.infrastructure.parametersRef is required and must reference a %s", paramsKind)
+	}
+	ref := gw.Spec.Infrastructure.ParametersRef
+	if string(ref.Group) != nbv1alpha1.GroupVersion.Group || string(ref.Kind) != paramsKind {
+		return nil, fmt.Errorf("parametersRef must reference %s.%s, got %s.%s", paramsKind, nbv1alpha1.GroupVersion.Group, ref.Kind, ref.Group)
+	}
+	params := &nbv1alpha1.ReverseProxyClusterParameters{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: gw.Namespace, Name: ref.Name}, params); err != nil {
+		if kerrors.IsNotFound(err) {
+			return nil, fmt.Errorf("%s %q not found in namespace %q", paramsKind, ref.Name, gw.Namespace)
+		}
+		return nil, err
+	}
+	return params, nil
+}
+
+// GatewayClassReconciler owns the operator's GatewayClass: it ensures the
+// managed class (ManagedClassName, controllerName gatewayController) exists,
+// recreates it if deleted, and marks any class of our controllerName Accepted.
+type GatewayClassReconciler struct {
+	client.Client
+	// ManagedClassName is the GatewayClass the operator creates and self-heals.
+	ManagedClassName string
+}
+
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses/status,verbs=get;update;patch
 
 func (r *GatewayClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	gc := &gwv1.GatewayClass{}
 	if err := r.Get(ctx, req.NamespacedName, gc); err != nil {
+		if kerrors.IsNotFound(err) && req.Name == r.ManagedClassName {
+			// Our managed class was deleted out of band — recreate it.
+			return ctrl.Result{}, r.ensure(ctx)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if gc.Spec.ControllerName != byopGatewayController {
+	if gc.Spec.ControllerName != gatewayController {
 		return ctrl.Result{}, nil
 	}
+
 	meta.SetStatusCondition(&gc.Status.Conditions, metav1.Condition{
 		Type:               string(gwv1.GatewayClassConditionStatusAccepted),
 		Status:             metav1.ConditionTrue,
 		Reason:             string(gwv1.GatewayClassReasonAccepted),
-		Message:            "Accepted by the NetBird BYOP reverse proxy",
+		Message:            "Accepted by the NetBird reverse-proxy gateway controller",
 		ObservedGeneration: gc.Generation,
 	})
 	return ctrl.Result{}, r.Status().Update(ctx, gc)
+}
+
+// ensure server-side-applies the managed GatewayClass. It is idempotent and
+// safe to call at startup and on every recreate. A pre-existing class with a
+// different (immutable) controllerName makes the apply fail — surfaced to the
+// caller, which logs rather than crashes.
+func (r *GatewayClassReconciler) ensure(ctx context.Context) error {
+	if r.ManagedClassName == "" {
+		return nil
+	}
+	gcAC := gwv1ac.GatewayClass(r.ManagedClassName).
+		WithSpec(gwv1ac.GatewayClassSpec().
+			WithControllerName(gatewayController).
+			WithDescription("NetBird reverse-proxy gateway (operator-managed)"))
+	return r.Apply(ctx, gcAC, client.ForceOwnership)
 }
 
 func (r *GatewayClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -63,15 +150,265 @@ func (r *GatewayClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// HTTPRouteReconciler translates HTTPRoutes attached to a BYOP Gateway into
-// owned ReverseProxyService children — the same exposure the operator already
-// reconciles, just authored from Gateway API instead of by hand.
-type HTTPRouteReconciler struct {
+// Start ensures the managed GatewayClass exists once the manager is running. It
+// is a leader-elected manager.Runnable (a plain func is treated as one), so only
+// the active operator creates it; a failed apply (e.g. a stale class with the
+// old controllerName) is logged, not fatal — the user deletes the stale class
+// and the For-watch recreate path takes over.
+func (r *GatewayClassReconciler) Start(ctx context.Context) error {
+	if err := r.ensure(ctx); err != nil {
+		logf.FromContext(ctx).Error(err, "could not ensure managed GatewayClass", "name", r.ManagedClassName)
+	}
+	return nil
+}
+
+// GatewayReconciler turns a Gateway of a BYOP class into a ReverseProxyCluster
+// it owns (deriving domain/clusterAddress/cert from the Gateway's listeners and
+// the rest from the class's parameters), and reflects the cluster's state back
+// into the Gateway's status.
+type GatewayReconciler struct {
 	client.Client
 	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=netbird.io,resources=reverseproxyclusterparameters,verbs=get;list;watch
+
+func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	gw := &gwv1.Gateway{}
+	if err := r.Get(ctx, req.NamespacedName, gw); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	gc := &gwv1.GatewayClass{}
+	if err := r.Get(ctx, client.ObjectKey{Name: string(gw.Spec.GatewayClassName)}, gc); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if gc.Spec.ControllerName != gatewayController {
+		return ctrl.Result{}, nil // not ours
+	}
+
+	params, err := resolveGatewayParams(ctx, r.Client, gw)
+	if err != nil {
+		return r.fail(ctx, gw, "InvalidParameters", err.Error())
+	}
+	cfg, ok := gatewayProxyConfig(gw)
+	if !ok {
+		return r.fail(ctx, gw, "NoUsableListener", "no HTTPS/TLS listener with a hostname and certificateRefs")
+	}
+
+	ownerRef, err := k8sutil.ControllerReference(gw, r.Scheme())
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	spec := nbv1alpha1ac.ReverseProxyClusterSpec().
+		WithClusterAddress(cfg.clusterAddress).
+		WithDomain(cfg.domain).
+		WithPrivate(params.Spec.Private)
+	if cfg.certSecret != "" {
+		spec.WithCertSecretName(cfg.certSecret)
+	}
+	if params.Spec.Image != "" {
+		spec.WithImage(params.Spec.Image)
+	}
+	if params.Spec.Replicas != nil {
+		spec.WithReplicas(*params.Spec.Replicas)
+	}
+	if len(params.Spec.Groups) > 0 {
+		spec.WithGroups(groupRefACs(params.Spec.Groups)...)
+	}
+	if len(params.Spec.ServiceAnnotations) > 0 {
+		spec.WithServiceAnnotations(params.Spec.ServiceAnnotations)
+	}
+	rpcAC := nbv1alpha1ac.ReverseProxyCluster(proxyClusterNameForGateway(gw), gw.Namespace).
+		WithOwnerReferences(ownerRef).
+		WithSpec(spec)
+	if err := r.Apply(ctx, rpcAC, client.ForceOwnership); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Reflect the owned cluster's state into the Gateway status.
+	rpc := &nbv1alpha1.ReverseProxyCluster{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: gw.Namespace, Name: proxyClusterNameForGateway(gw)}, rpc); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: resyncInterval}, r.syncStatus(ctx, gw, cfg, rpc)
+}
+
+// fail records an Accepted=False condition and requeues.
+func (r *GatewayReconciler) fail(ctx context.Context, gw *gwv1.Gateway, reason, msg string) (ctrl.Result, error) {
+	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+		Type:               string(gwv1.GatewayConditionAccepted),
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            msg,
+		ObservedGeneration: gw.Generation,
+	})
+	if err := r.Status().Update(ctx, gw); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+}
+
+// syncStatus sets the Gateway's Accepted/Programmed conditions, its address (the
+// proxy LoadBalancer IP), and the chosen listener's status.
+func (r *GatewayReconciler) syncStatus(ctx context.Context, gw *gwv1.Gateway, cfg gatewayProxy, rpc *nbv1alpha1.ReverseProxyCluster) error {
+	meta.SetStatusCondition(&gw.Status.Conditions, metav1.Condition{
+		Type:               string(gwv1.GatewayConditionAccepted),
+		Status:             metav1.ConditionTrue,
+		Reason:             string(gwv1.GatewayReasonAccepted),
+		Message:            "Translated to a NetBird ReverseProxyCluster",
+		ObservedGeneration: gw.Generation,
+	})
+
+	ready := meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)
+	programmed := metav1.Condition{
+		Type:               string(gwv1.GatewayConditionProgrammed),
+		Status:             metav1.ConditionFalse,
+		Reason:             "Pending",
+		Message:            "waiting for the proxy cluster to become ready",
+		ObservedGeneration: gw.Generation,
+	}
+	if ready {
+		programmed.Status = metav1.ConditionTrue
+		programmed.Reason = string(gwv1.GatewayReasonProgrammed)
+		programmed.Message = "the proxy cluster is ready"
+	}
+	meta.SetStatusCondition(&gw.Status.Conditions, programmed)
+
+	if rpc.Status.LoadBalancerIP != "" {
+		ipType := gwv1.IPAddressType
+		gw.Status.Addresses = []gwv1.GatewayStatusAddress{{Type: &ipType, Value: rpc.Status.LoadBalancerIP}}
+	}
+
+	gw.Status.Listeners = r.listenerStatuses(ctx, gw, cfg, ready)
+	return r.Status().Update(ctx, gw)
+}
+
+// listenerStatuses builds per-listener status: the chosen TLS listener gets full
+// Accepted/ResolvedRefs/Programmed conditions; any other listener is marked
+// unused (this implementation fronts a single TLS listener).
+func (r *GatewayReconciler) listenerStatuses(ctx context.Context, gw *gwv1.Gateway, cfg gatewayProxy, programmed bool) []gwv1.ListenerStatus {
+	attached := r.attachedRoutes(ctx, gw)
+	httpRouteKind := gwv1.RouteGroupKind{Group: (*gwv1.Group)(&gwv1.GroupVersion.Group), Kind: "HTTPRoute"}
+
+	out := make([]gwv1.ListenerStatus, 0, len(gw.Spec.Listeners))
+	for _, l := range gw.Spec.Listeners {
+		st := gwv1.ListenerStatus{
+			Name:           l.Name,
+			SupportedKinds: []gwv1.RouteGroupKind{httpRouteKind},
+		}
+		if l.Name != cfg.listener {
+			meta.SetStatusCondition(&st.Conditions, metav1.Condition{
+				Type: string(gwv1.ListenerConditionAccepted), Status: metav1.ConditionFalse,
+				Reason: "Unused", Message: "this implementation fronts a single TLS listener", ObservedGeneration: gw.Generation,
+			})
+			out = append(out, st)
+			continue
+		}
+		st.AttachedRoutes = attached
+		certOK := r.secretExists(ctx, gw.Namespace, cfg.certSecret)
+		resolved := metav1.Condition{
+			Type: string(gwv1.ListenerConditionResolvedRefs), Status: metav1.ConditionTrue,
+			Reason: string(gwv1.ListenerReasonResolvedRefs), Message: "certificate resolved", ObservedGeneration: gw.Generation,
+		}
+		if !certOK {
+			resolved.Status = metav1.ConditionFalse
+			resolved.Reason = string(gwv1.ListenerReasonInvalidCertificateRef)
+			resolved.Message = fmt.Sprintf("Secret %q not found", cfg.certSecret)
+		}
+		meta.SetStatusCondition(&st.Conditions, metav1.Condition{
+			Type: string(gwv1.ListenerConditionAccepted), Status: metav1.ConditionTrue,
+			Reason: string(gwv1.ListenerReasonAccepted), Message: "Accepted", ObservedGeneration: gw.Generation,
+		})
+		meta.SetStatusCondition(&st.Conditions, resolved)
+		progStatus := metav1.ConditionFalse
+		if programmed && certOK {
+			progStatus = metav1.ConditionTrue
+		}
+		meta.SetStatusCondition(&st.Conditions, metav1.Condition{
+			Type: string(gwv1.ListenerConditionProgrammed), Status: progStatus,
+			Reason: string(gwv1.ListenerReasonProgrammed), Message: "", ObservedGeneration: gw.Generation,
+		})
+		out = append(out, st)
+	}
+	return out
+}
+
+func (r *GatewayReconciler) secretExists(ctx context.Context, namespace, name string) bool {
+	if name == "" {
+		return false
+	}
+	return r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &corev1.Secret{}) == nil
+}
+
+// attachedRoutes counts HTTPRoutes that reference this Gateway as a parent.
+func (r *GatewayReconciler) attachedRoutes(ctx context.Context, gw *gwv1.Gateway) int32 {
+	var routes gwv1.HTTPRouteList
+	if err := r.List(ctx, &routes); err != nil {
+		return 0
+	}
+	var n int32
+	for i := range routes.Items {
+		if routeReferencesGateway(&routes.Items[i], gw) {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&gwv1.Gateway{}).
+		WithLogConstructor(logConstructor(mgr, "Gateway")).
+		Owns(&nbv1alpha1.ReverseProxyCluster{}).
+		Watches(&gwv1.GatewayClass{}, handler.EnqueueRequestsFromMapFunc(r.gatewaysForClass)).
+		Watches(&nbv1alpha1.ReverseProxyClusterParameters{}, handler.EnqueueRequestsFromMapFunc(r.gatewaysForParams)).
+		Complete(r)
+}
+
+// gatewaysForClass enqueues Gateways whose gatewayClassName is the changed class.
+func (r *GatewayReconciler) gatewaysForClass(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list gwv1.GatewayList
+	if err := r.List(ctx, &list); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		if string(list.Items[i].Spec.GatewayClassName) == obj.GetName() {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
+}
+
+// gatewaysForParams enqueues Gateways in the changed parameters' namespace whose
+// infrastructure.parametersRef names it (the reconcile filters to our class).
+func (r *GatewayReconciler) gatewaysForParams(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list gwv1.GatewayList
+	if err := r.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		infra := list.Items[i].Spec.Infrastructure
+		if infra != nil && infra.ParametersRef != nil && infra.ParametersRef.Name == obj.GetName() {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
+}
+
+// HTTPRouteReconciler translates HTTPRoutes attached to a BYOP Gateway into
+// owned ReverseProxyService children — the same exposure the operator already
+// reconciles, authored from Gateway API.
+type HTTPRouteReconciler struct {
+	client.Client
+	Recorder record.EventRecorder
+}
+
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes/status,verbs=get;update;patch
 
@@ -81,13 +418,17 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	clusterAddr, parent, ok, err := r.resolveCluster(ctx, route)
+	gw, parent, ok, err := r.resolveGateway(ctx, route)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	if !ok {
 		// Not attached to one of our Gateways — drop anything we previously made.
 		return ctrl.Result{}, r.prune(ctx, route, nil)
+	}
+	cfg, ok := gatewayProxyConfig(gw)
+	if !ok {
+		return ctrl.Result{RequeueAfter: dependencyRetry}, r.prune(ctx, route, nil)
 	}
 
 	ownerRef, err := k8sutil.ControllerReference(route, r.Scheme())
@@ -97,6 +438,9 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	desired := map[string]bool{}
 	for _, hostname := range route.Spec.Hostnames {
+		if !gatewayAdmitsRoute(gw, route, string(hostname)) {
+			continue // hostname doesn't match a listener / namespace not allowed
+		}
 		name := routeChildName(route.Name, string(hostname))
 		desired[name] = true
 		rpsAC := nbv1alpha1ac.ReverseProxyService(name, route.Namespace).
@@ -104,7 +448,10 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			WithLabels(map[string]string{httpRouteLabel: route.Name}).
 			WithSpec(nbv1alpha1ac.ReverseProxyServiceSpec().
 				WithDomain(string(hostname)).
-				WithProxyCluster(clusterAddr).
+				WithProxyCluster(cfg.clusterAddress).
+				// Pass the original Host to the backend, as a Gateway/kgateway
+				// would — apps front themselves by their public hostname.
+				WithPassHostHeader(true).
 				WithBackends(routeBackends(route)...))
 		if err := r.Apply(ctx, rpsAC, client.ForceOwnership); err != nil {
 			return ctrl.Result{}, err
@@ -114,13 +461,16 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.setAccepted(ctx, route, parent)
+	accepted := len(desired) > 0
+	if err := r.setAccepted(ctx, route, parent, accepted); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: resyncInterval}, nil
 }
 
-// resolveCluster finds the first parent Gateway of a class the operator owns and
-// returns the BYOP cluster address it routes to (from the GatewayClass's
-// parametersRef -> ReverseProxyCluster), plus the matched parentRef.
-func (r *HTTPRouteReconciler) resolveCluster(ctx context.Context, route *gwv1.HTTPRoute) (string, gwv1.ParentReference, bool, error) {
+// resolveGateway finds the first parent Gateway of a BYOP class the operator
+// owns, returning it plus the matched parentRef.
+func (r *HTTPRouteReconciler) resolveGateway(ctx context.Context, route *gwv1.HTTPRoute) (*gwv1.Gateway, gwv1.ParentReference, bool, error) {
 	for _, p := range route.Spec.ParentRefs {
 		ns := route.Namespace
 		if p.Namespace != nil {
@@ -131,33 +481,21 @@ func (r *HTTPRouteReconciler) resolveCluster(ctx context.Context, route *gwv1.HT
 			if kerrors.IsNotFound(err) {
 				continue
 			}
-			return "", p, false, err
+			return nil, p, false, err
 		}
 		gc := &gwv1.GatewayClass{}
 		if err := r.Get(ctx, client.ObjectKey{Name: string(gw.Spec.GatewayClassName)}, gc); err != nil {
 			if kerrors.IsNotFound(err) {
 				continue
 			}
-			return "", p, false, err
+			return nil, p, false, err
 		}
-		if gc.Spec.ControllerName != byopGatewayController || gc.Spec.ParametersRef == nil {
+		if gc.Spec.ControllerName != gatewayController {
 			continue
 		}
-		ref := gc.Spec.ParametersRef
-		refNS := ns
-		if ref.Namespace != nil {
-			refNS = string(*ref.Namespace)
-		}
-		rpc := &nbv1alpha1.ReverseProxyCluster{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: refNS, Name: ref.Name}, rpc); err != nil {
-			if kerrors.IsNotFound(err) {
-				continue
-			}
-			return "", p, false, err
-		}
-		return rpc.Spec.ClusterAddress, p, true, nil
+		return gw, p, true, nil
 	}
-	return "", gwv1.ParentReference{}, false, nil
+	return nil, gwv1.ParentReference{}, false, nil
 }
 
 // prune deletes ReverseProxyService children of the route no longer desired
@@ -177,7 +515,7 @@ func (r *HTTPRouteReconciler) prune(ctx context.Context, route *gwv1.HTTPRoute, 
 	return nil
 }
 
-func (r *HTTPRouteReconciler) setAccepted(ctx context.Context, route *gwv1.HTTPRoute, parent gwv1.ParentReference) error {
+func (r *HTTPRouteReconciler) setAccepted(ctx context.Context, route *gwv1.HTTPRoute, parent gwv1.ParentReference, accepted bool) error {
 	cond := metav1.Condition{
 		Type:               string(gwv1.RouteConditionAccepted),
 		Status:             metav1.ConditionTrue,
@@ -185,9 +523,14 @@ func (r *HTTPRouteReconciler) setAccepted(ctx context.Context, route *gwv1.HTTPR
 		Message:            "Translated to a NetBird ReverseProxyService",
 		ObservedGeneration: route.Generation,
 	}
+	if !accepted {
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = string(gwv1.RouteReasonNoMatchingListenerHostname)
+		cond.Message = "no route hostname matches a Gateway listener"
+	}
 	idx := -1
 	for i := range route.Status.Parents {
-		if route.Status.Parents[i].ControllerName == byopGatewayController {
+		if route.Status.Parents[i].ControllerName == gatewayController {
 			idx = i
 			break
 		}
@@ -195,7 +538,7 @@ func (r *HTTPRouteReconciler) setAccepted(ctx context.Context, route *gwv1.HTTPR
 	if idx < 0 {
 		route.Status.Parents = append(route.Status.Parents, gwv1.RouteParentStatus{
 			ParentRef:      parent,
-			ControllerName: byopGatewayController,
+			ControllerName: gatewayController,
 		})
 		idx = len(route.Status.Parents) - 1
 	}
@@ -208,12 +551,90 @@ func (r *HTTPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&gwv1.HTTPRoute{}).
 		WithLogConstructor(logConstructor(mgr, "HTTPRoute")).
 		Owns(&nbv1alpha1.ReverseProxyService{}).
+		Watches(&gwv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.routesForGateway)).
 		Complete(r)
 }
 
+// routesForGateway enqueues HTTPRoutes that reference the changed Gateway.
+func (r *HTTPRouteReconciler) routesForGateway(ctx context.Context, obj client.Object) []reconcile.Request {
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok {
+		return nil
+	}
+	var routes gwv1.HTTPRouteList
+	if err := r.List(ctx, &routes); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range routes.Items {
+		if routeReferencesGateway(&routes.Items[i], gw) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&routes.Items[i])})
+		}
+	}
+	return reqs
+}
+
+// routeReferencesGateway reports whether the route lists gw as a parentRef.
+func routeReferencesGateway(route *gwv1.HTTPRoute, gw *gwv1.Gateway) bool {
+	for _, p := range route.Spec.ParentRefs {
+		ns := route.Namespace
+		if p.Namespace != nil {
+			ns = string(*p.Namespace)
+		}
+		if string(p.Name) == gw.Name && ns == gw.Namespace {
+			return true
+		}
+	}
+	return false
+}
+
+// gatewayAdmitsRoute reports whether the route (for the given hostname) attaches
+// to the Gateway: some listener's hostname matches and its allowedRoutes permits
+// the route's namespace.
+func gatewayAdmitsRoute(gw *gwv1.Gateway, route *gwv1.HTTPRoute, hostname string) bool {
+	for _, l := range gw.Spec.Listeners {
+		if !listenerHostnameMatches(l.Hostname, hostname) {
+			continue
+		}
+		if !allowedRoutesPermits(gw, l, route.Namespace) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// listenerHostnameMatches matches a route hostname against a listener hostname,
+// honoring a leading wildcard label. A nil/empty listener hostname matches all.
+func listenerHostnameMatches(listener *gwv1.Hostname, routeHost string) bool {
+	if listener == nil || *listener == "" {
+		return true
+	}
+	lh := string(*listener)
+	if suffix, ok := strings.CutPrefix(lh, "*."); ok {
+		return strings.HasSuffix(routeHost, "."+suffix) && len(routeHost) > len(suffix)+1
+	}
+	return lh == routeHost
+}
+
+// allowedRoutesPermits checks the listener's allowedRoutes namespace policy
+// (From All or Same; Selector is treated as deny in this implementation).
+func allowedRoutesPermits(gw *gwv1.Gateway, l gwv1.Listener, routeNamespace string) bool {
+	if l.AllowedRoutes == nil || l.AllowedRoutes.Namespaces == nil || l.AllowedRoutes.Namespaces.From == nil {
+		return routeNamespace == gw.Namespace // default: Same
+	}
+	switch *l.AllowedRoutes.Namespaces.From {
+	case gwv1.NamespacesFromAll:
+		return true
+	case gwv1.NamespacesFromSame:
+		return routeNamespace == gw.Namespace
+	default:
+		return false
+	}
+}
+
 // routeBackends maps an HTTPRoute's rules onto ReverseProxyService backends: one
-// backend per (rule, backendRef), carrying the rule's PathPrefix as the backend
-// path. Match types other than PathPrefix collapse to "/".
+// backend per (rule, backendRef), carrying the rule's PathPrefix as the path.
 func routeBackends(route *gwv1.HTTPRoute) []*nbv1alpha1ac.ReverseProxyBackendApplyConfiguration {
 	var out []*nbv1alpha1ac.ReverseProxyBackendApplyConfiguration
 	for _, rule := range route.Spec.Rules {

@@ -41,9 +41,6 @@ func applyDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *n
 	if err != nil {
 		return err
 	}
-	if distGroups == nil {
-		distGroups = []string{}
-	}
 
 	enableSearch := false
 	if z.Spec.EnableSearchDomain != nil {

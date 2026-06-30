@@ -53,9 +53,6 @@ func applyNetworkResource(ctx context.Context, nb *netbird.Client, c client.Clie
 	if err != nil {
 		return err
 	}
-	if groupIDs == nil {
-		groupIDs = []string{}
-	}
 
 	req := api.NetworkResourceRequest{
 		Address: nr.Spec.Address,

@@ -14,6 +14,9 @@ import (
 	nbv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
 )
 
+// GetGroupIDs resolves group references to their NetBird group ids. On success
+// it always returns a non-nil slice (empty when refs is empty), so callers can
+// pass the result straight to the API without a nil check.
 func GetGroupIDs(ctx context.Context, k8sClient client.Client, nbClient *netbird.Client, refs []nbv1alpha1.GroupReference, namespace string) ([]string, error) {
 	groupIDs := []string{}
 	for _, ref := range refs {
