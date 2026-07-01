@@ -43,6 +43,10 @@ type ReverseProxyClusterSpecApplyConfiguration struct {
 	// Image overrides the netbird reverse-proxy image. Defaults to the operator's
 	// pinned image.
 	Image *string `json:"image,omitempty"`
+	// LogLevel sets the proxy's log level (and its embedded netbird client's),
+	// e.g. "error" to silence the embedded client's unused P2P/ICE warnings on a
+	// centralised cluster. Empty keeps the image default.
+	LogLevel *string `json:"logLevel,omitempty"`
 	// ServiceAnnotations are added to the proxy's LoadBalancer Service, e.g. to
 	// pin an LB-IPAM pool or request a specific IP.
 	ServiceAnnotations map[string]string `json:"serviceAnnotations,omitempty"`
@@ -120,6 +124,14 @@ func (b *ReverseProxyClusterSpecApplyConfiguration) WithReplicas(value int32) *R
 // If called multiple times, the Image field is set to the value of the last call.
 func (b *ReverseProxyClusterSpecApplyConfiguration) WithImage(value string) *ReverseProxyClusterSpecApplyConfiguration {
 	b.Image = &value
+	return b
+}
+
+// WithLogLevel sets the LogLevel field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LogLevel field is set to the value of the last call.
+func (b *ReverseProxyClusterSpecApplyConfiguration) WithLogLevel(value string) *ReverseProxyClusterSpecApplyConfiguration {
+	b.LogLevel = &value
 	return b
 }
 

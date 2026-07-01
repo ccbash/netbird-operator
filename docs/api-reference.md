@@ -680,6 +680,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `image` _string_ | Image overrides the netbird reverse-proxy image. Defaults to the operator's<br />pinned image. |  | Optional: \{\} <br /> |
 | `replicas` _integer_ | Replicas of the proxy Deployment. Defaults to 1. |  | Minimum: 1 <br />Optional: \{\} <br /> |
+| `logLevel` _string_ | LogLevel sets the proxy's log level (and its embedded netbird client's),<br />e.g. "error" to silence the embedded client's unused P2P/ICE warnings on a<br />centralised cluster. Empty keeps the image default. |  | Enum: [error warn info debug trace] <br />Optional: \{\} <br /> |
 | `groups` _[GroupReference](#groupreference) array_ | Groups are NetBird groups the proxy's advertised LoadBalancer resource<br />joins, so access policies can target it. |  | Optional: \{\} <br /> |
 | `private` _boolean_ | Private enables NetBird-Only services: the proxy runs an embedded netbird<br />client (userspace WireGuard). Group-based services work regardless. |  | Optional: \{\} <br /> |
 | `serviceAnnotations` _object (keys:string, values:string)_ | ServiceAnnotations are added to each Gateway's proxy LoadBalancer Service,<br />e.g. to pin an LB-IPAM pool. |  | Optional: \{\} <br /> |
@@ -711,6 +712,7 @@ _Appears in:_
 | `private` _boolean_ | Private enables NetBird-Only access for services on this cluster. The proxy<br />then runs an embedded netbird client (a mesh peer, userspace WireGuard — no<br />extra privileges), which the cluster needs to serve private (mesh-only)<br />services. Group-based services keep working regardless. |  | Optional: \{\} <br /> |
 | `replicas` _integer_ | Replicas of the proxy Deployment. Defaults to 1. | 1 | Minimum: 1 <br />Optional: \{\} <br /> |
 | `image` _string_ | Image overrides the netbird reverse-proxy image. Defaults to the operator's<br />pinned image. |  | Optional: \{\} <br /> |
+| `logLevel` _string_ | LogLevel sets the proxy's log level (and its embedded netbird client's),<br />e.g. "error" to silence the embedded client's unused P2P/ICE warnings on a<br />centralised cluster. Empty keeps the image default. |  | Enum: [error warn info debug trace] <br />Optional: \{\} <br /> |
 | `serviceAnnotations` _object (keys:string, values:string)_ | ServiceAnnotations are added to the proxy's LoadBalancer Service, e.g. to<br />pin an LB-IPAM pool or request a specific IP. |  | Optional: \{\} <br /> |
 
 
@@ -733,6 +735,8 @@ _Appears in:_
 | `tokenID` _string_ | TokenID is the id of the minted proxy token (revoked when the cluster is<br />deleted). |  | Optional: \{\} <br /> |
 | `domainID` _string_ | DomainID is the id of the registered NetBird custom domain (Domain -><br />ClusterAddress), so service domains under it derive this cluster. Removed<br />when the cluster is deleted. |  | Optional: \{\} <br /> |
 | `loadBalancerIP` _string_ | LoadBalancerIP is the proxy Service's assigned ingress IP — what the A<br />record points at. |  | Optional: \{\} <br /> |
+| `online` _boolean_ | Online reports whether at least one proxy node in the cluster has recently<br />heartbeated to the Management API (the embedded client is connected). |  | Optional: \{\} <br /> |
+| `connectedProxies` _integer_ | ConnectedProxies is the number of proxy nodes currently connected to the<br />cluster (per the Management API). |  | Optional: \{\} <br /> |
 
 
 #### ReverseProxyMode

@@ -85,6 +85,18 @@ spec:
                   Image overrides the netbird reverse-proxy image. Defaults to the operator's
                   pinned image.
                 type: string
+              logLevel:
+                description: |-
+                  LogLevel sets the proxy's log level (and its embedded netbird client's),
+                  e.g. "error" to silence the embedded client's unused P2P/ICE warnings on a
+                  centralised cluster. Empty keeps the image default.
+                enum:
+                - error
+                - warn
+                - info
+                - debug
+                - trace
+                type: string
               private:
                 description: |-
                   Private enables NetBird-Only services: the proxy runs an embedded netbird

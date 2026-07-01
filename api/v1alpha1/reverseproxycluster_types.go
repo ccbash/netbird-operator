@@ -60,6 +60,13 @@ type ReverseProxyClusterSpec struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 
+	// LogLevel sets the proxy's log level (and its embedded netbird client's),
+	// e.g. "error" to silence the embedded client's unused P2P/ICE warnings on a
+	// centralised cluster. Empty keeps the image default.
+	// +optional
+	// +kubebuilder:validation:Enum=error;warn;info;debug;trace
+	LogLevel string `json:"logLevel,omitempty"`
+
 	// ServiceAnnotations are added to the proxy's LoadBalancer Service, e.g. to
 	// pin an LB-IPAM pool or request a specific IP.
 	// +optional
@@ -98,6 +105,16 @@ type ReverseProxyClusterStatus struct {
 	// record points at.
 	// +optional
 	LoadBalancerIP string `json:"loadBalancerIP,omitempty"`
+
+	// Online reports whether at least one proxy node in the cluster has recently
+	// heartbeated to the Management API (the embedded client is connected).
+	// +optional
+	Online bool `json:"online,omitempty"`
+
+	// ConnectedProxies is the number of proxy nodes currently connected to the
+	// cluster (per the Management API).
+	// +optional
+	ConnectedProxies int `json:"connectedProxies,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -105,6 +122,8 @@ type ReverseProxyClusterStatus struct {
 // +kubebuilder:resource
 // +kubebuilder:printcolumn:name="Cluster Address",type="string",JSONPath=".spec.clusterAddress",description=""
 // +kubebuilder:printcolumn:name="LB IP",type="string",JSONPath=".status.loadBalancerIP",description=""
+// +kubebuilder:printcolumn:name="Proxies",type="integer",JSONPath=".status.connectedProxies",description=""
+// +kubebuilder:printcolumn:name="Online",type="boolean",JSONPath=".status.online",description=""
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""
 
