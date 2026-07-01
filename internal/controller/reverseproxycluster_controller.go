@@ -133,7 +133,8 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	// 5. Ready once the proxy has enrolled (its cluster resolves at the address).
-	if _, err := netbirdutil.GetProxyClusterByAddress(ctx, r.Netbird, rpc.Spec.ClusterAddress); err != nil {
+	cluster, err := netbirdutil.GetProxyClusterByAddress(ctx, r.Netbird, rpc.Spec.ClusterAddress)
+	if err != nil {
 		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "waiting for the proxy to enroll at %s", rpc.Spec.ClusterAddress)
 		if err := sp.Patch(ctx, rpc); err != nil {
 			return ctrl.Result{}, err
@@ -141,6 +142,9 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 	}
 	rpc.Status.ClusterAddress = rpc.Spec.ClusterAddress
+	// Surface the proxy's connectivity (embedded client heartbeat) for visibility.
+	rpc.Status.Online = cluster.Online
+	rpc.Status.ConnectedProxies = cluster.ConnectedProxies
 
 	// 6. Register the custom domain (Domain -> this cluster) so service domains
 	//    under it derive the cluster. Re-derive the id from the live list every
@@ -346,6 +350,16 @@ func (r *ReverseProxyClusterReconciler) applyDeployment(ctx context.Context, rpc
 				corev1.ResourceMemory: resource.MustParse("128Mi"),
 			}))
 
+	// Optional log level for the proxy and its embedded netbird client. Set both
+	// envs so it applies whichever the image honors — e.g. "error" silences the
+	// embedded client's unused P2P/ICE warnings on a centralised cluster.
+	if rpc.Spec.LogLevel != "" {
+		container.WithEnv(
+			corev1ac.EnvVar().WithName("NB_PROXY_LOG_LEVEL").WithValue(rpc.Spec.LogLevel),
+			corev1ac.EnvVar().WithName("NB_LOG_LEVEL").WithValue(rpc.Spec.LogLevel),
+		)
+	}
+
 	// Mount the cert-manager TLS Secret as the proxy's static certificate. The
 	// mount must be added to the container before WithContainers, which copies it.
 	if rpc.Spec.CertSecretName != "" {
@@ -380,6 +394,10 @@ func (r *ReverseProxyClusterReconciler) applyService(ctx context.Context, rpc *n
 		WithOwnerReferences(ownerRef).
 		WithSpec(corev1ac.ServiceSpec().
 			WithType(corev1.ServiceTypeLoadBalancer).
+			// Dual-stack where the cluster supports it, so the LoadBalancer
+			// controller advertises both A and AAAA for the proxy. PreferDualStack
+			// degrades to single-stack on IPv4-only clusters.
+			WithIPFamilyPolicy(corev1.IPFamilyPolicyPreferDualStack).
 			WithSelector(proxySelectorLabels(rpc)).
 			WithPorts(
 				// Public 80 and 443 both map onto the proxy's single listener,

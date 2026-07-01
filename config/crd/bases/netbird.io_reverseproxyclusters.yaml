@@ -21,6 +21,12 @@ spec:
     - jsonPath: .status.loadBalancerIP
       name: LB IP
       type: string
+    - jsonPath: .status.connectedProxies
+      name: Proxies
+      type: integer
+    - jsonPath: .status.online
+      name: Online
+      type: boolean
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
@@ -118,6 +124,18 @@ spec:
                 description: |-
                   Image overrides the netbird reverse-proxy image. Defaults to the operator's
                   pinned image.
+                type: string
+              logLevel:
+                description: |-
+                  LogLevel sets the proxy's log level (and its embedded netbird client's),
+                  e.g. "error" to silence the embedded client's unused P2P/ICE warnings on a
+                  centralised cluster. Empty keeps the image default.
+                enum:
+                - error
+                - warn
+                - info
+                - debug
+                - trace
                 type: string
               private:
                 description: |-
@@ -227,6 +245,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              connectedProxies:
+                description: |-
+                  ConnectedProxies is the number of proxy nodes currently connected to the
+                  cluster (per the Management API).
+                type: integer
               domainID:
                 description: |-
                   DomainID is the id of the registered NetBird custom domain (Domain ->
@@ -242,6 +265,11 @@ spec:
                 description: ObservedGeneration is the last reconciled generation.
                 format: int64
                 type: integer
+              online:
+                description: |-
+                  Online reports whether at least one proxy node in the cluster has recently
+                  heartbeated to the Management API (the embedded client is connected).
+                type: boolean
               tokenID:
                 description: |-
                   TokenID is the id of the minted proxy token (revoked when the cluster is

@@ -44,7 +44,7 @@ type Controls struct {
 func (c *Controls) AddProxyCluster(id, address string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.clusters = append(c.clusters, api.ProxyCluster{Id: id, Address: address, Online: true})
+	c.clusters = append(c.clusters, api.ProxyCluster{Id: id, Address: address, Online: true, ConnectedProxies: 1})
 }
 
 func (c *Controls) proxyClusters() []api.ProxyCluster {

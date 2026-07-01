@@ -30,6 +30,12 @@ type ReverseProxyClusterStatusApplyConfiguration struct {
 	// LoadBalancerIP is the proxy Service's assigned ingress IP — what the A
 	// record points at.
 	LoadBalancerIP *string `json:"loadBalancerIP,omitempty"`
+	// Online reports whether at least one proxy node in the cluster has recently
+	// heartbeated to the Management API (the embedded client is connected).
+	Online *bool `json:"online,omitempty"`
+	// ConnectedProxies is the number of proxy nodes currently connected to the
+	// cluster (per the Management API).
+	ConnectedProxies *int `json:"connectedProxies,omitempty"`
 }
 
 // ReverseProxyClusterStatusApplyConfiguration constructs a declarative configuration of the ReverseProxyClusterStatus type for use with
@@ -88,5 +94,21 @@ func (b *ReverseProxyClusterStatusApplyConfiguration) WithDomainID(value string)
 // If called multiple times, the LoadBalancerIP field is set to the value of the last call.
 func (b *ReverseProxyClusterStatusApplyConfiguration) WithLoadBalancerIP(value string) *ReverseProxyClusterStatusApplyConfiguration {
 	b.LoadBalancerIP = &value
+	return b
+}
+
+// WithOnline sets the Online field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Online field is set to the value of the last call.
+func (b *ReverseProxyClusterStatusApplyConfiguration) WithOnline(value bool) *ReverseProxyClusterStatusApplyConfiguration {
+	b.Online = &value
+	return b
+}
+
+// WithConnectedProxies sets the ConnectedProxies field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ConnectedProxies field is set to the value of the last call.
+func (b *ReverseProxyClusterStatusApplyConfiguration) WithConnectedProxies(value int) *ReverseProxyClusterStatusApplyConfiguration {
+	b.ConnectedProxies = &value
 	return b
 }

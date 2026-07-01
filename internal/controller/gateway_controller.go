@@ -242,6 +242,9 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if params.Spec.Image != "" {
 		spec.WithImage(params.Spec.Image)
 	}
+	if params.Spec.LogLevel != "" {
+		spec.WithLogLevel(params.Spec.LogLevel)
+	}
 	if params.Spec.Replicas != nil {
 		spec.WithReplicas(*params.Spec.Replicas)
 	}

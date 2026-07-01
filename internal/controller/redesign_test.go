@@ -472,6 +472,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 					CertSecretName: "wildcard-tls",
 					Groups:         []nbv1alpha1.GroupReference{{Name: &all}},
 					Private:        true,
+					LogLevel:       "error",
 				},
 			}
 			Expect(k8sClient.Create(ctx, rpc)).To(Succeed())
@@ -495,6 +496,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			// Proxy listens on a non-privileged port; HTTP health probes on :8080.
 			Expect(envValue(env, "NB_PROXY_ADDRESS")).To(Equal(":8443"))
 			Expect(envValue(env, "NB_PROXY_PRIVATE")).To(Equal("true")) // embedded peer for NetBird-Only services
+			// LogLevel propagates to both the proxy and its embedded netbird client.
+			Expect(envValue(env, "NB_PROXY_LOG_LEVEL")).To(Equal("error"))
+			Expect(envValue(env, "NB_LOG_LEVEL")).To(Equal("error"))
 			// ndots:1 so external FQDNs (geo DB, ACME) resolve without the NetBird search domain.
 			Expect(dep.Spec.Template.Spec.DNSConfig).NotTo(BeNil())
 			Expect(dep.Spec.Template.Spec.DNSConfig.Options).To(ContainElement(corev1.PodDNSConfigOption{Name: "ndots", Value: ptrTo("1")}))
@@ -503,6 +507,8 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			svc := &corev1.Service{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: ns}, svc)).To(Succeed())
 			Expect(svc.Spec.Type).To(Equal(corev1.ServiceTypeLoadBalancer))
+			// Dual-stack so both A and AAAA get advertised for the proxy.
+			Expect(svc.Spec.IPFamilyPolicy).To(HaveValue(Equal(corev1.IPFamilyPolicyPreferDualStack)))
 			svcPorts := map[int32]int32{}
 			for _, p := range svc.Spec.Ports {
 				svcPorts[p.Port] = p.TargetPort.IntVal
@@ -542,6 +548,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(rpc.Status.LoadBalancerIP).To(Equal("192.0.2.50"))
 			Expect(rpc.Status.ClusterAddress).To(Equal("gate.ccbash.cloud"))
 			Expect(rpc.Status.DomainID).NotTo(BeEmpty()) // custom domain registered
+			// Proxy connectivity surfaced from the Management API.
+			Expect(rpc.Status.Online).To(BeTrue())
+			Expect(rpc.Status.ConnectedProxies).To(Equal(1))
 			Expect(meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
 
 			// Custom domain deleted out of band: the next reconcile re-registers it
@@ -569,8 +578,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			params := &nbv1alpha1.ReverseProxyClusterParameters{
 				ObjectMeta: metav1.ObjectMeta{Name: "params-" + ns, Namespace: ns},
 				Spec: nbv1alpha1.ReverseProxyClusterParametersSpec{
-					Private: true,
-					Groups:  []nbv1alpha1.GroupReference{{Name: &all}},
+					Private:  true,
+					LogLevel: "error",
+					Groups:   []nbv1alpha1.GroupReference{{Name: &all}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, params)).To(Succeed())
@@ -624,6 +634,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(rpc.Spec.ClusterAddress).To(Equal("gate.ccbash.cloud"))
 			Expect(rpc.Spec.CertSecretName).To(Equal("wildcard-tls"))
 			Expect(rpc.Spec.Private).To(BeTrue())
+			Expect(rpc.Spec.LogLevel).To(Equal("error"))
 			Expect(rpc.OwnerReferences).To(HaveLen(1))
 			Expect(rpc.OwnerReferences[0].Name).To(Equal("web"))
 
