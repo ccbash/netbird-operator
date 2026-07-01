@@ -145,6 +145,9 @@ kind: ReverseProxyClusterParameters
 metadata: { name: netbird, namespace: netbird }
 spec:
   private: false                  # centralised: the proxy dials ClusterIP backends directly
+  logLevel: error                 # recommended when centralised — silences the embedded
+                                  # client's unused P2P/ICE warnings (peers reach the proxy
+                                  # at its LB IP, never via a WireGuard tunnel to it)
   groups: [ { name: All } ]       # groups the proxy's LB resource joins
   # image / replicas / serviceAnnotations: optional overrides
 ---

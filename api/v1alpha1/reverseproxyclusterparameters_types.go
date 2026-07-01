@@ -22,6 +22,13 @@ type ReverseProxyClusterParametersSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Replicas *int32 `json:"replicas,omitempty"`
 
+	// LogLevel sets the proxy's log level (and its embedded netbird client's),
+	// e.g. "error" to silence the embedded client's unused P2P/ICE warnings on a
+	// centralised cluster. Empty keeps the image default.
+	// +optional
+	// +kubebuilder:validation:Enum=error;warn;info;debug;trace
+	LogLevel string `json:"logLevel,omitempty"`
+
 	// Groups are NetBird groups the proxy's advertised LoadBalancer resource
 	// joins, so access policies can target it.
 	// +optional
