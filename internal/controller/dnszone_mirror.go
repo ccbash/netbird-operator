@@ -101,9 +101,9 @@ func deleteDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *
 	}
 	// applyDNSZone adopts a NetBird zone by Name, so two DNSZone CRs with the same
 	// spec.Name share one zone id. Don't delete the shared zone while another
-	// (non-deleting) CR still owns the same name — that would wipe it out from
-	// under the survivor; let the last CR standing remove it.
-	shared, err := dnsZoneNameSharedByOther(ctx, c, z)
+	// (non-deleting) CR still owns it — that would wipe it out from under the
+	// survivor; let the last CR standing remove it.
+	shared, err := dnsZoneSharedByOther(ctx, c, z)
 	if err != nil {
 		return err
 	}
@@ -113,9 +113,12 @@ func deleteDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *
 	return nb.DNSZones.DeleteZone(ctx, z.Status.ZoneID)
 }
 
-// dnsZoneNameSharedByOther reports whether another (non-deleting) DNSZone CR
-// declares the same spec.Name, meaning it adopted the same NetBird zone.
-func dnsZoneNameSharedByOther(ctx context.Context, c client.Client, z *nbv1alpha1.DNSZone) (bool, error) {
+// dnsZoneSharedByOther reports whether another (non-deleting) DNSZone CR owns
+// the same NetBird zone. The delete is keyed on Status.ZoneID, so that recorded
+// id is what must be compared — spec.Name is mutable, and a renamed CR would
+// otherwise slip past the guard and wipe the zone from under the survivor. The
+// name comparison stays for a same-name CR that hasn't adopted the zone yet.
+func dnsZoneSharedByOther(ctx context.Context, c client.Client, z *nbv1alpha1.DNSZone) (bool, error) {
 	var list nbv1alpha1.DNSZoneList
 	if err := c.List(ctx, &list); err != nil {
 		return false, err
@@ -125,7 +128,8 @@ func dnsZoneNameSharedByOther(ctx context.Context, c client.Client, z *nbv1alpha
 		if other.UID == z.UID || !other.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if other.Spec.Name == z.Spec.Name {
+		if other.Spec.Name == z.Spec.Name ||
+			(z.Status.ZoneID != "" && other.Status.ZoneID == z.Status.ZoneID) {
 			return true, nil
 		}
 	}

@@ -4,6 +4,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -135,6 +136,10 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	// 5. Ready once the proxy has enrolled (its cluster resolves at the address).
 	cluster, err := netbirdutil.GetProxyClusterByAddress(ctx, r.Netbird, rpc.Spec.ClusterAddress)
 	if err != nil {
+		// The cluster is unresolvable — don't leave last-good connectivity values
+		// behind (the ONLINE/PROXIES printcolumns would keep reporting a live proxy).
+		rpc.Status.Online = false
+		rpc.Status.ConnectedProxies = 0
 		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "waiting for the proxy to enroll at %s", rpc.Spec.ClusterAddress)
 		if err := sp.Patch(ctx, rpc); err != nil {
 			return ctrl.Result{}, err
@@ -152,6 +157,13 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	//    deletion self-heals within the resync window instead of getting stuck
 	//    validating a registration that no longer exists.
 	domainID, err := r.ensureDomain(ctx, rpc)
+	if errors.Is(err, errDependencyNotReady) {
+		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "%s", err.Error())
+		if perr := sp.Patch(ctx, rpc); perr != nil {
+			return ctrl.Result{}, perr
+		}
+		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -179,27 +191,37 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 
 func (r *ReverseProxyClusterReconciler) reconcileDelete(ctx context.Context, sp *patch.SerialPatcher, rpc *nbv1alpha1.ReverseProxyCluster) (ctrl.Result, error) {
 	// Revoke the token; owned children (Secret/Deployment/Service/DNS*) GC via
-	// owner refs. The custom domain and the account cluster registration are keyed
-	// on this cluster's Domain/ClusterAddress and may be shared with another
-	// ReverseProxyCluster fronting the same domain — only drop them when no
-	// surviving CR still references that domain, so deleting one doesn't pull the
-	// registration out from under the other.
+	// owner refs. The custom domain and the account cluster registration may each
+	// be shared with another ReverseProxyCluster CR — but on different axes (the
+	// domain registration is keyed on Domain, the cluster registration on
+	// ClusterAddress), so each delete gets its own guard against the key it
+	// operates on. Only drop a registration when no surviving CR still uses it.
 	if rpc.Status.TokenID != "" {
 		if err := r.Netbird.ReverseProxyTokens.Delete(ctx, rpc.Status.TokenID); err != nil && !netbird.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 	}
-	shared, err := r.domainSharedByOtherCluster(ctx, rpc)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if !shared {
-		if rpc.Status.DomainID != "" {
+	if rpc.Status.DomainID != "" {
+		domainShared, err := r.anotherClusterMatches(ctx, rpc, func(other *nbv1alpha1.ReverseProxyCluster) bool {
+			return other.Spec.Domain == rpc.Spec.Domain || other.Status.DomainID == rpc.Status.DomainID
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !domainShared {
 			if err := r.Netbird.ReverseProxyDomains.Delete(ctx, rpc.Status.DomainID); err != nil && !netbird.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
 		}
-		if rpc.Status.ClusterAddress != "" {
+	}
+	if rpc.Status.ClusterAddress != "" {
+		clusterShared, err := r.anotherClusterMatches(ctx, rpc, func(other *nbv1alpha1.ReverseProxyCluster) bool {
+			return other.Spec.ClusterAddress == rpc.Status.ClusterAddress || other.Status.ClusterAddress == rpc.Status.ClusterAddress
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !clusterShared {
 			if err := r.Netbird.ReverseProxyClusters.Delete(ctx, rpc.Status.ClusterAddress); err != nil && !netbird.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -214,16 +236,41 @@ func (r *ReverseProxyClusterReconciler) reconcileDelete(ctx context.Context, sp 
 
 // ensureDomain returns the NetBird custom-domain id for rpc.Spec.Domain, adopting
 // an existing registration or creating one. Listing every reconcile (rather than
-// gating on a recorded id) lets an out-of-band deletion self-heal.
+// gating on a recorded id) lets an out-of-band deletion self-heal. An adopted
+// registration must actually target this CR's cluster — the API has no update, so
+// a stale target (e.g. after a clusterAddress change, or after the CR owning the
+// target was deleted) is replaced via delete + create, while a target another
+// live CR owns is a spec conflict surfaced as not-ready rather than fought over.
 func (r *ReverseProxyClusterReconciler) ensureDomain(ctx context.Context, rpc *nbv1alpha1.ReverseProxyCluster) (string, error) {
 	domains, err := r.Netbird.ReverseProxyDomains.List(ctx)
 	if err != nil {
 		return "", err
 	}
 	for _, d := range domains {
-		if d.Domain == rpc.Spec.Domain {
+		if d.Domain != rpc.Spec.Domain {
+			continue
+		}
+		target := ""
+		if d.TargetCluster != nil {
+			target = *d.TargetCluster
+		}
+		if target == "" || target == rpc.Spec.ClusterAddress {
 			return d.Id, nil
 		}
+		owned, err := r.anotherClusterMatches(ctx, rpc, func(other *nbv1alpha1.ReverseProxyCluster) bool {
+			return other.Spec.ClusterAddress == target || other.Status.ClusterAddress == target
+		})
+		if err != nil {
+			return "", err
+		}
+		if owned {
+			return "", fmt.Errorf("%w: custom domain %s already targets cluster %s owned by another ReverseProxyCluster",
+				errDependencyNotReady, rpc.Spec.Domain, target)
+		}
+		if err := r.Netbird.ReverseProxyDomains.Delete(ctx, d.Id); err != nil && !netbird.IsNotFound(err) {
+			return "", err
+		}
+		break
 	}
 	resp, err := r.Netbird.ReverseProxyDomains.Create(ctx, api.ReverseProxyDomainRequest{
 		Domain:        rpc.Spec.Domain,
@@ -235,10 +282,10 @@ func (r *ReverseProxyClusterReconciler) ensureDomain(ctx context.Context, rpc *n
 	return resp.Id, nil
 }
 
-// domainSharedByOtherCluster reports whether another (non-deleting)
-// ReverseProxyCluster CR fronts the same Domain, so this CR's deletion must not
-// drop the shared NetBird custom-domain / cluster registration.
-func (r *ReverseProxyClusterReconciler) domainSharedByOtherCluster(ctx context.Context, rpc *nbv1alpha1.ReverseProxyCluster) (bool, error) {
+// anotherClusterMatches reports whether any other (non-deleting)
+// ReverseProxyCluster CR satisfies match — used to keep a NetBird registration
+// another CR still depends on from being deleted or re-pointed.
+func (r *ReverseProxyClusterReconciler) anotherClusterMatches(ctx context.Context, rpc *nbv1alpha1.ReverseProxyCluster, match func(*nbv1alpha1.ReverseProxyCluster) bool) (bool, error) {
 	var list nbv1alpha1.ReverseProxyClusterList
 	if err := r.List(ctx, &list); err != nil {
 		return false, err
@@ -248,7 +295,7 @@ func (r *ReverseProxyClusterReconciler) domainSharedByOtherCluster(ctx context.C
 		if other.UID == rpc.UID || !other.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if other.Spec.Domain == rpc.Spec.Domain {
+		if match(other) {
 			return true, nil
 		}
 	}
