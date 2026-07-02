@@ -319,11 +319,17 @@ func (r *GatewayReconciler) syncStatus(ctx context.Context, gw *gwv1.Gateway, cf
 	return r.Status().Update(ctx, gw)
 }
 
-// listenerStatuses builds per-listener status: the chosen TLS listener gets full
-// Accepted/ResolvedRefs/Programmed conditions; any other listener is marked
-// unused (this implementation fronts a single TLS listener).
+// listenerStatuses builds per-listener status. Every listener under the proxy's
+// registered domain participates in admission (see gatewayAdmitsRoute) and is
+// served by the proxy's SNI router, so each gets full Accepted/ResolvedRefs/
+// Programmed conditions and its own attached-route count — the Gateway status
+// must not contradict routes that report Accepted via a non-proxy listener.
+// Listeners outside the domain (or without a hostname) are marked unused.
 func (r *GatewayReconciler) listenerStatuses(ctx context.Context, gw *gwv1.Gateway, cfg gatewayProxy, programmed bool) []gwv1.ListenerStatus {
-	attached := r.attachedRoutes(ctx, gw)
+	var routes gwv1.HTTPRouteList
+	if err := r.List(ctx, &routes); err != nil {
+		routes = gwv1.HTTPRouteList{}
+	}
 	httpRouteKind := gwv1.RouteGroupKind{Group: (*gwv1.Group)(&gwv1.GroupVersion.Group), Kind: "HTTPRoute"}
 
 	out := make([]gwv1.ListenerStatus, 0, len(gw.Spec.Listeners))
@@ -332,24 +338,28 @@ func (r *GatewayReconciler) listenerStatuses(ctx context.Context, gw *gwv1.Gatew
 			Name:           l.Name,
 			SupportedKinds: []gwv1.RouteGroupKind{httpRouteKind},
 		}
-		if l.Name != cfg.listener {
+		if !listenerUnderDomain(l, cfg.domain) {
 			meta.SetStatusCondition(&st.Conditions, metav1.Condition{
 				Type: string(gwv1.ListenerConditionAccepted), Status: metav1.ConditionFalse,
-				Reason: "Unused", Message: "this implementation fronts a single TLS listener", ObservedGeneration: gw.Generation,
+				Reason: "Unused", Message: fmt.Sprintf("listener hostname is not under the proxy's registered domain %s", cfg.domain), ObservedGeneration: gw.Generation,
 			})
 			out = append(out, st)
 			continue
 		}
-		st.AttachedRoutes = attached
-		certOK := r.secretExists(ctx, gw.Namespace, cfg.certSecret)
+		st.AttachedRoutes = listenerAttachedRoutes(gw, l, routes.Items)
+		certOK := true
 		resolved := metav1.Condition{
 			Type: string(gwv1.ListenerConditionResolvedRefs), Status: metav1.ConditionTrue,
-			Reason: string(gwv1.ListenerReasonResolvedRefs), Message: "certificate resolved", ObservedGeneration: gw.Generation,
+			Reason: string(gwv1.ListenerReasonResolvedRefs), Message: "resolved", ObservedGeneration: gw.Generation,
 		}
-		if !certOK {
-			resolved.Status = metav1.ConditionFalse
-			resolved.Reason = string(gwv1.ListenerReasonInvalidCertificateRef)
-			resolved.Message = fmt.Sprintf("Secret %q not found", cfg.certSecret)
+		if l.TLS != nil && len(l.TLS.CertificateRefs) > 0 {
+			certName := string(l.TLS.CertificateRefs[0].Name)
+			certOK = r.secretExists(ctx, gw.Namespace, certName)
+			if !certOK {
+				resolved.Status = metav1.ConditionFalse
+				resolved.Reason = string(gwv1.ListenerReasonInvalidCertificateRef)
+				resolved.Message = fmt.Sprintf("Secret %q not found", certName)
+			}
 		}
 		meta.SetStatusCondition(&st.Conditions, metav1.Condition{
 			Type: string(gwv1.ListenerConditionAccepted), Status: metav1.ConditionTrue,
@@ -376,15 +386,25 @@ func (r *GatewayReconciler) secretExists(ctx context.Context, namespace, name st
 	return r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &corev1.Secret{}) == nil
 }
 
-// attachedRoutes counts HTTPRoutes that reference this Gateway as a parent.
-func (r *GatewayReconciler) attachedRoutes(ctx context.Context, gw *gwv1.Gateway) int32 {
-	var routes gwv1.HTTPRouteList
-	if err := r.List(ctx, &routes); err != nil {
-		return 0
-	}
+// listenerAttachedRoutes counts HTTPRoutes bound to this listener: they
+// reference the Gateway, the listener's allowedRoutes permits their namespace,
+// and some route hostname matches the listener (a hostname-less route matches
+// every listener, per Gateway API hostname inheritance).
+func listenerAttachedRoutes(gw *gwv1.Gateway, l gwv1.Listener, routes []gwv1.HTTPRoute) int32 {
 	var n int32
-	for i := range routes.Items {
-		if routeReferencesGateway(&routes.Items[i], gw) {
+	for i := range routes {
+		route := &routes[i]
+		if !routeReferencesGateway(route, gw) || !allowedRoutesPermits(gw, l, route.Namespace) {
+			continue
+		}
+		matches := len(route.Spec.Hostnames) == 0
+		for _, h := range route.Spec.Hostnames {
+			if listenerHostnameMatches(l.Hostname, string(h)) {
+				matches = true
+				break
+			}
+		}
+		if matches {
 			n++
 		}
 	}
@@ -510,7 +530,7 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			"no route hostname matches the Gateway's proxy listener domain"
 	default:
 		status, reason, msg = metav1.ConditionFalse, gwv1.RouteReasonUnsupportedValue,
-			fmt.Sprintf("route has no hostnames and the Gateway's listeners under %s are wildcards; set spec.hostnames explicitly", cfg.domain)
+			fmt.Sprintf("route has no hostnames and no concrete listener hostname under %s admits namespace %s; set spec.hostnames explicitly", cfg.domain, route.Namespace)
 	}
 	if err := r.setRouteCondition(ctx, route, parent, status, reason, msg); err != nil {
 		return ctrl.Result{}, err
@@ -638,15 +658,22 @@ func routeReferencesGateway(route *gwv1.HTTPRoute, gw *gwv1.Gateway) bool {
 // gatewayAdmitsRoute reports whether the route (for the given hostname) attaches
 // to the Gateway for the proxy's registered domain: the hostname must fall under
 // cfg.domain (never register a hostname outside the registered custom domain
-// against the cluster), and some listener must both match it and permit the
-// route's namespace via allowedRoutes. Any listener counts — a Gateway commonly
-// pairs an apex and a wildcard listener over the same domain — but both checks
-// must hold on the same listener.
+// against the cluster), and some listener *under that domain* must both match it
+// and permit the route's namespace via allowedRoutes — both checks on the same
+// listener. Any under-domain listener counts (a Gateway commonly pairs an apex
+// and a wildcard listener over the same domain), but listeners outside the
+// domain — in particular hostname-less catch-alls like a plain :80 redirect
+// listener with allowedRoutes From=All — must not grant admission onto the
+// proxy: that would let a foreign namespace claim a hostname the proxy
+// listener's own allowedRoutes scoped tighter.
 func gatewayAdmitsRoute(gw *gwv1.Gateway, route *gwv1.HTTPRoute, hostname string, cfg gatewayProxy) bool {
 	if !hostnameUnderDomain(hostname, cfg.domain) {
 		return false
 	}
 	for _, l := range gw.Spec.Listeners {
+		if !listenerUnderDomain(l, cfg.domain) {
+			continue
+		}
 		if listenerHostnameMatches(l.Hostname, hostname) && allowedRoutesPermits(gw, l, route.Namespace) {
 			return true
 		}
@@ -657,6 +684,17 @@ func gatewayAdmitsRoute(gw *gwv1.Gateway, route *gwv1.HTTPRoute, hostname string
 // hostnameUnderDomain reports whether hostname is domain itself or a name under it.
 func hostnameUnderDomain(hostname, domain string) bool {
 	return hostname == domain || strings.HasSuffix(hostname, "."+domain)
+}
+
+// listenerUnderDomain reports whether the listener declares a hostname under the
+// proxy's registered domain (wildcards count by their suffix). Hostname-less
+// listeners never qualify — they'd match every hostname and leak their
+// allowedRoutes onto hostnames they don't own.
+func listenerUnderDomain(l gwv1.Listener, domain string) bool {
+	if l.Hostname == nil || *l.Hostname == "" {
+		return false
+	}
+	return hostnameUnderDomain(strings.TrimPrefix(string(*l.Hostname), "*."), domain)
 }
 
 // admittedHostnames returns the hostnames to translate for the route: its own
@@ -730,19 +768,28 @@ const maxProxyBackends = 64
 // backend per (rule path × backendRef). It fails closed — ok false with a
 // human-readable reason — on route semantics the NetBird proxy can't faithfully
 // represent, rather than silently widening or dropping traffic: Exact/Regex path
-// matches, differing backend weights (no weighted routing), zero surviving
-// backends, or more than the CRD's backend cap. A weight of 0 excludes that
-// backendRef, per Gateway API. (Header/method matches are not translated; only
-// the path prefix is.)
+// matches, any rule/backend filters (RequestRedirect, URLRewrite, header mods —
+// none are translated), differing backend weights (no weighted routing), a rule
+// routing no traffic (no backendRefs / all weight 0 — its paths would silently
+// fall through to another rule's backends), or more than the CRD's backend cap.
+// A weight of 0 excludes that backendRef, per Gateway API. (Header/method
+// matches are not translated; only the path prefix is.)
 func routeBackends(route *gwv1.HTTPRoute) ([]*nbv1alpha1ac.ReverseProxyBackendApplyConfiguration, string, bool) {
 	var out []*nbv1alpha1ac.ReverseProxyBackendApplyConfiguration
 	for _, rule := range route.Spec.Rules {
+		if len(rule.Filters) > 0 {
+			return nil, "route rule filters are not supported", false
+		}
 		paths, ok := rulePaths(rule)
 		if !ok {
 			return nil, "only PathPrefix path matches are supported", false
 		}
 		weight := int32(-1)
+		ruleBackends := 0
 		for _, br := range rule.BackendRefs {
+			if len(br.Filters) > 0 {
+				return nil, "backendRef filters are not supported", false
+			}
 			w := int32(1)
 			if br.Weight != nil {
 				w = *br.Weight
@@ -763,10 +810,16 @@ func routeBackends(route *gwv1.HTTPRoute) ([]*nbv1alpha1ac.ReverseProxyBackendAp
 				}
 				out = append(out, b)
 			}
+			ruleBackends++
+		}
+		// Per rule, not per route: a backend-less rule among healthy ones would
+		// silently hand its paths to another rule's backends.
+		if ruleBackends == 0 {
+			return nil, "a rule routes no traffic (no backendRefs, or all weights 0)", false
 		}
 	}
 	if len(out) == 0 {
-		return nil, "no backends to route to (no backendRefs, or all have weight 0)", false
+		return nil, "no backends to route to (route has no rules)", false
 	}
 	if len(out) > maxProxyBackends {
 		return nil, fmt.Sprintf("too many path/backend combinations (max %d)", maxProxyBackends), false
