@@ -165,7 +165,14 @@ func main() {
 		setupLog.Error(err, "Failed to initialize webhook certificate watcher")
 		os.Exit(1)
 	}
-	webhookServer := webhook.NewServer(webhook.Options{TLSOpts: []TLSOption{tlsOpt}})
+	// Only pass the cert-watcher option when it was actually built — controller-
+	// runtime invokes every TLSOpt unconditionally, so a nil entry (no cert path)
+	// would panic the webhook server on start.
+	var tlsOpts []TLSOption
+	if tlsOpt != nil {
+		tlsOpts = append(tlsOpts, tlsOpt)
+	}
+	webhookServer := webhook.NewServer(webhook.Options{TLSOpts: tlsOpts})
 
 	// Authenticate/authorize metrics scrapers (and serve over HTTPS) unless
 	// explicitly disabled for a trusted-network HTTP setup.

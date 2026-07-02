@@ -3,6 +3,7 @@
 package netbirdutil
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -50,6 +51,28 @@ func (c *listCache[T]) fetchLocked(now time.Time, fetch func() ([]T, error)) ([]
 	c.ok = true
 	c.expires = now.Add(listCacheTTL)
 	return items, nil
+}
+
+// lookup returns the first cached item matching match, refetching once on a miss
+// before reporting not-found — so a just-created item isn't missed due to a
+// stale cache. found is false (nil error) when nothing matches after the
+// refetch; a non-nil error is a fetch failure.
+func (c *listCache[T]) lookup(now time.Time, fetch func() ([]T, error), match func(T) bool) (item T, found bool, err error) {
+	items, err := c.list(now, fetch)
+	if err != nil {
+		return item, false, err
+	}
+	if i := slices.IndexFunc(items, match); i != -1 {
+		return items[i], true, nil
+	}
+	items, err = c.refresh(now, fetch)
+	if err != nil {
+		return item, false, err
+	}
+	if i := slices.IndexFunc(items, match); i != -1 {
+		return items[i], true, nil
+	}
+	return item, false, nil
 }
 
 // apiCaches holds the per-client list caches for the "list everything to find
