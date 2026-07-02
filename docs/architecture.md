@@ -235,6 +235,27 @@ permissions come from whatever RBAC binds the impersonated group.
 
 These surfaces are pinned by `clusterproxy_controller_test.go`.
 
+## Implementation map
+
+Where the pieces above live. `cmd/main.go` → `setupControllers` registers
+everything **only when a NetBird API key is set** (no key → no controllers,
+fail inert); all writes are server-side apply with
+`FieldOwner: "netbird-operator"`.
+
+| area | code | gate / flag |
+|---|---|---|
+| generic mirror reconciler | `internal/controller/mirror.go` (`MirrorReconciler[T]`); one `mirror[T]` adapter per kind in `*_mirror.go` (`apply` upserts → records the status id, `del` cleans up) | — |
+| LB advertising | `internal/controller/loadbalancer_controller.go`; the IP-family fan-out + FQDN helpers live only in `serviceaddr.go` | `--advertise-loadbalancers` (default `true`) |
+| routing peers | `internal/controller/networkrouter_controller.go` | — |
+| Gateway API translation | `internal/controller/gateway_controller.go` (GatewayClass + Gateway + HTTPRoute; pure helpers unit-tested in `gateway_helpers_test.go`) | `--enable-gateway-api`, `--gateway-class-name` |
+| BYOP proxy | `internal/controller/reverseproxycluster_controller.go` | via Gateway, or authored directly |
+| cluster access | `internal/controller/clusterproxy_controller.go` | — |
+| bespoke mirrors | `Group` / `SetupKey` controllers (pre-redesign shape, kept) | — |
+| Pod sidecar webhook | `internal/webhook/v1` | `--enable-webhooks` |
+| shared helpers | `internal/netbirdutil/` (group/zone/proxy-cluster resolution, 30s per-client list caches, error classification), `internal/k8sutil/` (finalizers, owner refs), `internal/version/` (pinned images) | — |
+| NetBird API fake | `internal/netbirdmock/` — httptest fake of the Management API; `addHandler(...)` per CRUD endpoint, `Controls` seeds read-only state (proxy clusters) | tests only |
+| API types | `api/v1alpha1/*_types.go` is the only hand-edited layer; deepcopy, apply-configurations, chart CRDs and `docs/api-reference.md` are generated from it | `make generate` |
+
 ---
 
 ## Guard rails
@@ -282,8 +303,10 @@ pin them. When you add a controller, hold it to the same list.
   NetBird delete while another live CR still uses the object.
 - **Verify what you adopt; GET-verify what you recorded.** An adopted object
   must actually match the spec (e.g. a ReverseProxyDomain's `TargetCluster`);
-  a recorded id is GET-verified before reuse and recreated when deleted out of
-  band. Stale-but-unowned state is repaired; state owned by another live CR is
+  a recorded id is GET-verified before reuse (a plain `GET` returns a clean
+  404; `Update` may not) and recreated when deleted out of band; a child's
+  recorded id is reset when its parent's id changes.
+  Stale-but-unowned state is repaired; state owned by another live CR is
   a **conflict surfaced as not-ready (`errDependencyNotReady` → requeue), never
   fought over** — two controllers overwriting each other's NetBird object every
   reconcile is the definition of flapping.
