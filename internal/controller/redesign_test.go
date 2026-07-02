@@ -568,6 +568,180 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(domains).To(HaveLen(1))
 			Expect(domains[0].Domain).To(Equal("ccbash.cloud"))
 		})
+
+		// readyRPC creates a ReverseProxyCluster and reconciles it through the LB
+		// IP + enrollment seeding to its terminal state for the current NetBird
+		// fixture (Ready, or a dependency condition the caller asserts on).
+		readyRPC := func(r *ReverseProxyClusterReconciler, name, domain, address string) *nbv1alpha1.ReverseProxyCluster {
+			rpc := &nbv1alpha1.ReverseProxyCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+				Spec:       nbv1alpha1.ReverseProxyClusterSpec{ClusterAddress: address, Domain: domain},
+			}
+			Expect(k8sClient.Create(ctx, rpc)).To(Succeed())
+			_, err := reconcileOnce(r, name)
+			Expect(err).NotTo(HaveOccurred())
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "reverseproxycluster-" + name, Namespace: ns}, svc)).To(Succeed())
+			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.60"}}
+			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
+			controls.AddProxyCluster("c-"+name, address)
+			_, err = reconcileOnce(r, name)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rpc), rpc)).To(Succeed())
+			return rpc
+		}
+
+		It("resets connectivity status when the proxy disappears", func() {
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			rpc := readyRPC(r, "gate", "off.test", "gate.off.test")
+			Expect(rpc.Status.Online).To(BeTrue())
+			Expect(rpc.Status.ConnectedProxies).To(Equal(1))
+
+			// The cluster deregisters / all proxies die. A fresh client sidesteps
+			// the netbirdutil list cache (per client) so the loss is seen now, as
+			// it would be in production after the TTL.
+			controls.RemoveProxyCluster("gate.off.test")
+			r = &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: controls.NewClient(), ManagementURL: "https://mgmt.test"}
+			_, err := reconcileOnce(r, "gate")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rpc), rpc)).To(Succeed())
+			Expect(meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeFalse())
+			// The printcolumns must not keep reporting the last-good connectivity.
+			Expect(rpc.Status.Online).To(BeFalse())
+			Expect(rpc.Status.ConnectedProxies).To(BeZero())
+			// The delete key survives for reconcileDelete.
+			Expect(rpc.Status.ClusterAddress).To(Equal("gate.off.test"))
+		})
+
+		It("replaces a stale custom-domain registration targeting a dead cluster", func() {
+			// A registration left behind targeting a cluster no CR owns (e.g. after
+			// a spec.clusterAddress change) must be replaced, not adopted as-is.
+			_, err := nbClient.ReverseProxyDomains.Create(ctx, api.ReverseProxyDomainRequest{
+				Domain:        "solo.test",
+				TargetCluster: "gate-dead.solo.test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			rpc := readyRPC(r, "solo", "solo.test", "gate.solo.test")
+			Expect(meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+
+			domains, err := nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(HaveLen(1))
+			Expect(domains[0].TargetCluster).To(HaveValue(Equal("gate.solo.test")))
+		})
+
+		It("shares the domain across CRs and re-points it when its target CR is deleted", func() {
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			a := readyRPC(r, "gate-a", "shared.test", "gate-a.shared.test")
+			Expect(meta.IsStatusConditionTrue(a.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+
+			// B fronts the same domain with its own cluster: the registration
+			// legitimately targets A, so B must surface the conflict, not fight.
+			b := readyRPC(r, "gate-b", "shared.test", "gate-b.shared.test")
+			Expect(meta.IsStatusConditionTrue(b.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeFalse())
+			ready := meta.FindStatusCondition(b.Status.Conditions, nbv1alpha1.ReadyCondition)
+			Expect(ready.Message).To(ContainSubstring("gate-a.shared.test"))
+
+			// Deleting A keeps the shared domain registration but drops A's own
+			// cluster registration (nobody else uses that address).
+			Expect(k8sClient.Delete(ctx, a)).To(Succeed())
+			_, err := reconcileOnce(r, "gate-a")
+			Expect(err).NotTo(HaveOccurred())
+			domains, err := nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(HaveLen(1))
+			clusters, err := nbClient.ReverseProxyClusters.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(clusters).To(HaveLen(1))
+			Expect(clusters[0].Address).To(Equal("gate-b.shared.test"))
+
+			// B's next reconcile finds the registration targeting the now-unowned
+			// gate-a and replaces it with one targeting itself: self-healed.
+			_, err = reconcileOnce(r, "gate-b")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(b), b)).To(Succeed())
+			Expect(meta.IsStatusConditionTrue(b.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+			domains, err = nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(HaveLen(1))
+			Expect(domains[0].TargetCluster).To(HaveValue(Equal("gate-b.shared.test")))
+		})
+
+		It("keeps shared registrations until the last same-address CR is deleted", func() {
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			a := readyRPC(r, "dup-a", "dup.test", "gate.dup.test")
+			b := readyRPC(r, "dup-b", "dup.test", "gate.dup.test")
+			Expect(meta.IsStatusConditionTrue(a.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+			Expect(meta.IsStatusConditionTrue(b.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+			Expect(b.Status.DomainID).To(Equal(a.Status.DomainID)) // adopted, not duplicated
+
+			Expect(k8sClient.Delete(ctx, a)).To(Succeed())
+			_, err := reconcileOnce(r, "dup-a")
+			Expect(err).NotTo(HaveOccurred())
+			domains, err := nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(HaveLen(1)) // B still fronts the domain
+			clusters, err := nbClient.ReverseProxyClusters.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(clusters).NotTo(BeEmpty()) // B still uses the address
+
+			Expect(k8sClient.Delete(ctx, b)).To(Succeed())
+			_, err = reconcileOnce(r, "dup-b")
+			Expect(err).NotTo(HaveOccurred())
+			domains, err = nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(BeEmpty())
+			clusters, err = nbClient.ReverseProxyClusters.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(clusters).To(BeEmpty())
+		})
+	})
+
+	Describe("DNSZone sharing", func() {
+		It("does not delete a shared zone from under the surviving CR, even after a rename", func() {
+			r := NewDNSZoneReconciler(k8sClient, nbClient, nil)
+			zone := func(name string) *nbv1alpha1.DNSZone {
+				z := &nbv1alpha1.DNSZone{
+					ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+					Spec:       nbv1alpha1.DNSZoneSpec{Name: "internal", Domain: "internal.test", Enabled: true},
+				}
+				Expect(k8sClient.Create(ctx, z)).To(Succeed())
+				_, err := reconcileOnce(r, name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(z), z)).To(Succeed())
+				Expect(z.Status.ZoneID).NotTo(BeEmpty())
+				return z
+			}
+
+			// Both CRs declare the same zone name: B adopts A's NetBird zone.
+			a, b := zone("zone-a"), zone("zone-b")
+			Expect(b.Status.ZoneID).To(Equal(a.Status.ZoneID))
+			sharedID := a.Status.ZoneID
+
+			// Rename A's spec.Name (the mutable field the old guard compared).
+			a.Spec.Name = "internal-renamed"
+			Expect(k8sClient.Update(ctx, a)).To(Succeed())
+			_, err := reconcileOnce(r, "zone-a")
+			Expect(err).NotTo(HaveOccurred())
+
+			// Deleting the renamed A must not wipe the zone B still owns — the
+			// guard compares the recorded ZoneID, not the drifted spec.Name.
+			Expect(k8sClient.Delete(ctx, a)).To(Succeed())
+			_, err = reconcileOnce(r, "zone-a")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = nbClient.DNSZones.GetZone(ctx, sharedID)
+			Expect(err).NotTo(HaveOccurred())
+
+			// The last CR standing removes the zone.
+			Expect(k8sClient.Delete(ctx, b)).To(Succeed())
+			_, err = reconcileOnce(r, "zone-b")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = nbClient.DNSZones.GetZone(ctx, sharedID)
+			Expect(err).To(HaveOccurred())
+		})
 	})
 
 	Describe("Gateway API translation", func() {
@@ -662,7 +836,7 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			rps := &nbv1alpha1.ReverseProxyService{}
-			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "infisical-secrets-ccbash-cloud", Namespace: ns}, rps)).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: routeChildName("infisical", "secrets.ccbash.cloud"), Namespace: ns}, rps)).To(Succeed())
 			Expect(rps.Spec.Domain).To(Equal("secrets.ccbash.cloud"))
 			Expect(rps.Spec.ProxyCluster).To(Equal("gate.ccbash.cloud"))
 			Expect(rps.Spec.PassHostHeader).NotTo(BeNil())
@@ -675,6 +849,35 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(route), route)).To(Succeed())
 			Expect(route.Status.Parents).To(HaveLen(1))
 			Expect(meta.IsStatusConditionTrue(route.Status.Parents[0].Conditions, string(gwv1.RouteConditionAccepted))).To(BeTrue())
+
+			// A hostname-less route inherits listener hostnames per Gateway API —
+			// but this Gateway only has a wildcard listener, so there is nothing
+			// concrete to inherit: it must fail closed with an accurate reason.
+			bare := &gwv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{Name: "bare", Namespace: ns},
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{{Name: gwv1.ObjectName("web")}},
+					},
+					Rules: []gwv1.HTTPRouteRule{{
+						BackendRefs: []gwv1.HTTPBackendRef{{BackendRef: gwv1.BackendRef{
+							BackendObjectReference: gwv1.BackendObjectReference{
+								Name: gwv1.ObjectName("app"), Port: ptrTo(gwv1.PortNumber(8080)),
+							},
+						}}},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, bare)).To(Succeed())
+			_, err = reconcileOnce(&HTTPRouteReconciler{Client: k8sClient}, "bare")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(bare), bare)).To(Succeed())
+			Expect(bare.Status.Parents).To(HaveLen(1))
+			accepted := meta.FindStatusCondition(bare.Status.Parents[0].Conditions, string(gwv1.RouteConditionAccepted))
+			Expect(accepted).NotTo(BeNil())
+			Expect(accepted.Status).To(Equal(metav1.ConditionFalse))
+			Expect(accepted.Reason).To(Equal(string(gwv1.RouteReasonUnsupportedValue)))
+			Expect(accepted.Message).To(ContainSubstring("no hostnames"))
 		})
 
 		It("creates and self-heals the operator-owned GatewayClass", func() {

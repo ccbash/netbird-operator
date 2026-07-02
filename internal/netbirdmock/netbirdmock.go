@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 
@@ -35,8 +36,16 @@ func resourceTypeForAddress(address string) api.NetworkResourceType {
 // Controls lets a test seed state the operator only reads (never creates) —
 // currently the reverse-proxy clusters, which are provisioned out of band.
 type Controls struct {
-	mu       sync.Mutex
-	clusters []api.ProxyCluster
+	mu        sync.Mutex
+	clusters  []api.ProxyCluster
+	serverURL string
+}
+
+// NewClient returns a fresh client for the same fake server. The netbirdutil
+// list caches are keyed per client, so a fresh client sees seeded changes (e.g.
+// RemoveProxyCluster) immediately instead of after the cache TTL.
+func (c *Controls) NewClient() *netbird.Client {
+	return netbird.New(c.serverURL, "ABC")
 }
 
 // AddProxyCluster seeds a reverse-proxy cluster so GetProxyClusterByAddress can
@@ -45,6 +54,17 @@ func (c *Controls) AddProxyCluster(id, address string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.clusters = append(c.clusters, api.ProxyCluster{Id: id, Address: address, Online: true, ConnectedProxies: 1})
+}
+
+// RemoveProxyCluster removes seeded clusters by address (simulates the proxy
+// un-enrolling / going away; also backs the DELETE handler). Reports whether
+// any matched.
+func (c *Controls) RemoveProxyCluster(address string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	before := len(c.clusters)
+	c.clusters = slices.DeleteFunc(c.clusters, func(pc api.ProxyCluster) bool { return pc.Address == address })
+	return len(c.clusters) < before
 }
 
 func (c *Controls) proxyClusters() []api.ProxyCluster {
@@ -73,6 +93,16 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 			return
 		}
 		_, _ = rw.Write(b)
+	}))
+	// ...except a BYOP cluster registration, which the operator deletes by
+	// address. The 404 must be a parseable ErrorResponse body so the client
+	// classifies it (netbird.IsNotFound), like the real Management API.
+	mux.Handle("DELETE /api/reverse-proxies/clusters/{address}", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if !controls.RemoveProxyCluster(r.PathValue("address")) {
+			util.WriteErrorResponse("Not Found", http.StatusNotFound, rw)
+			return
+		}
+		rw.WriteHeader(http.StatusOK)
 	}))
 	// Reverse-proxy services are CRUD'd by the operator.
 	addHandler(mux, "reverse-proxies/services", func(id string, input api.ServiceRequest, output api.Service) api.Service {
@@ -176,6 +206,7 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 	})
 
 	srv := httptest.NewServer(mux)
+	controls.serverURL = srv.URL
 	return netbird.New(srv.URL, "ABC"), controls
 }
 
