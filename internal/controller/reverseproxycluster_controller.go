@@ -122,11 +122,7 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	// 4. Wait for the LoadBalancer IP, then publish the proxy A record + catch-all.
 	ip, ok := r.serviceIP(ctx, rpc)
 	if !ok {
-		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "waiting for the proxy LoadBalancer IP")
-		if err := sp.Patch(ctx, rpc); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+		return r.notReady(ctx, sp, rpc, "waiting for the proxy LoadBalancer IP")
 	}
 	rpc.Status.LoadBalancerIP = ip
 	if err := r.applyRecords(ctx, rpc, ownerRef, zoneRef, ip); err != nil {
@@ -140,11 +136,7 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 		// behind (the ONLINE/PROXIES printcolumns would keep reporting a live proxy).
 		rpc.Status.Online = false
 		rpc.Status.ConnectedProxies = 0
-		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "waiting for the proxy to enroll at %s", rpc.Spec.ClusterAddress)
-		if err := sp.Patch(ctx, rpc); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+		return r.notReady(ctx, sp, rpc, "waiting for the proxy to enroll at %s", rpc.Spec.ClusterAddress)
 	}
 	rpc.Status.ClusterAddress = rpc.Spec.ClusterAddress
 	// Surface the proxy's connectivity (embedded client heartbeat) for visibility.
@@ -158,11 +150,7 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	//    validating a registration that no longer exists.
 	domainID, err := r.ensureDomain(ctx, rpc)
 	if errors.Is(err, errDependencyNotReady) {
-		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "%s", err.Error())
-		if perr := sp.Patch(ctx, rpc); perr != nil {
-			return ctrl.Result{}, perr
-		}
-		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+		return r.notReady(ctx, sp, rpc, "%s", err.Error())
 	}
 	if err != nil {
 		return ctrl.Result{}, err
@@ -175,11 +163,7 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	// Trigger/confirm validation; requeue until it passes (DNS may still be settling).
 	if err := r.Netbird.ReverseProxyDomains.Validate(ctx, rpc.Status.DomainID); err != nil {
-		conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, "validating custom domain %s: %s", rpc.Spec.Domain, err.Error())
-		if perr := sp.Patch(ctx, rpc); perr != nil {
-			return ctrl.Result{}, perr
-		}
-		return ctrl.Result{RequeueAfter: dependencyRetry}, nil
+		return r.notReady(ctx, sp, rpc, "validating custom domain %s: %s", rpc.Spec.Domain, err.Error())
 	}
 
 	conditions.MarkTrue(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.ReconciledReason, "")
@@ -290,16 +274,18 @@ func (r *ReverseProxyClusterReconciler) anotherClusterMatches(ctx context.Contex
 	if err := r.List(ctx, &list); err != nil {
 		return false, err
 	}
-	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == rpc.UID || !other.DeletionTimestamp.IsZero() {
-			continue
-		}
-		if match(other) {
-			return true, nil
-		}
+	return anotherLiveMatches(rpc, list.Items, match), nil
+}
+
+// notReady marks the cluster's Ready condition false with a dependency reason
+// and requeues at the dependency cadence — the wait-state exit shared by every
+// not-yet-ready branch of Reconcile.
+func (r *ReverseProxyClusterReconciler) notReady(ctx context.Context, sp *patch.SerialPatcher, rpc *nbv1alpha1.ReverseProxyCluster, format string, args ...any) (ctrl.Result, error) {
+	conditions.MarkFalse(rpc, nbv1alpha1.ReadyCondition, nbv1alpha1.DependencyReason, format, args...)
+	if err := sp.Patch(ctx, rpc); err != nil {
+		return ctrl.Result{}, err
 	}
-	return false, nil
+	return ctrl.Result{RequeueAfter: dependencyRetry}, nil
 }
 
 // ensureZone applies an owned DNSZone for spec.Domain, or returns the referenced

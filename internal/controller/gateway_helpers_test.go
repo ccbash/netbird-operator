@@ -157,7 +157,7 @@ func TestGatewayAdmitsRoute(t *testing.T) {
 			{Name: "other", Hostname: ptrTo(gwv1.Hostname("*.bar.com"))},
 		}},
 	}
-	cfg := gatewayProxy{domain: "foo.com", listener: "apex"}
+	cfg := gatewayProxy{domain: "foo.com"} // admission reads only the domain, not the derived listener
 	route := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"}}
 
 	// Admission must consider every listener, not just the proxy listener the

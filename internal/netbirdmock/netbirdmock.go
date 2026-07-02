@@ -207,7 +207,7 @@ func ClientWithControls() (*netbird.Client, *Controls) {
 
 	srv := httptest.NewServer(mux)
 	controls.serverURL = srv.URL
-	return netbird.New(srv.URL, "ABC"), controls
+	return controls.NewClient(), controls
 }
 
 func addHandler[T, U any](mux *http.ServeMux, resource string, convertFn func(string, U, T) T) {
