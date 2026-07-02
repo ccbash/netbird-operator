@@ -1,67 +1,74 @@
 # Architecture
 
-This document describes the **target architecture**. The principle is unchanged
-from the v0.11.x redesign:
+This document describes the architecture as **settled in v0.12** and the guard
+rails that keep it settled. The principle is unchanged since the v0.11 redesign:
 
 > **NetBird CRDs mirror NetBird API objects 1:1.** The operator is a thin
 > translation layer between Kubernetes and the NetBird Management API.
 
-What changed since v0.11.x is the *translation*: the operator no longer routes
-**ClusterIPs**, owns a **Gateway**, or creates per-backend resources. It works
-off **`Service type=LoadBalancer`** addresses and is driven by three CRDs —
-`Network`, `NetworkRouter`, `ReverseProxyService`.
+## Scope — what the operator is
 
-> **Implementation status.** Both layers are implemented: the Layer-1 mirror CRDs
-> and generic reconciler (`internal/controller/mirror.go`) and the Layer-2
-> LoadBalancer-IP translation (`internal/controller/loadbalancer_controller.go`,
-> `reverseproxyservice_mirror.go`), which **supersedes** the v0.11.x
-> Gateway/ClusterIP translation.
+Four capabilities, layered:
+
+| capability | input | output | data plane |
+|---|---|---|---|
+| **Mirror** | a `netbird.io` CRD | the matching NetBird API object | — |
+| **Reachability** | `Service type=LoadBalancer` | `NetworkResource` + dualstack `DNSRecord` per LB IP family | NetBird routing peers → LB IP |
+| **Exposure** | Gateway API (`Gateway` + `HTTPRoute`) or a hand-authored `ReverseProxyService` | an in-cluster NetBird reverse proxy (`ReverseProxyCluster`) + `ReverseProxyService`s | the NetBird reverse proxy |
+| **Cluster access** | `ClusterProxy` | kube-apiserver on the mesh, NetBird-identity impersonation | `netbird-kubeapi-proxy` |
+
+And explicitly **not**: a general ingress controller, a DNS synchronizer for
+externally-owned zones, a ClusterIP-CIDR router, or a policy engine (access is
+always granted in NetBird, never implied by the operator).
 
 ## The model in one line
 
-A Kubernetes `Service type=LoadBalancer` — bare, or provisioned by a Gateway-API
-controller like kgateway (a Gateway *is* a LoadBalancer Service; its address is
-in `Gateway.status.addresses`) — has an LB IP. The operator makes that LB IP
-reachable over a NetBird network, gives it a dualstack DNS name, and optionally
-exposes it through the NetBird reverse proxy. **ClusterIPs are never routed; the
-service CIDR is never advertised.**
+A `Service type=LoadBalancer` has a deliberately-allocated, collision-free IP —
+the operator makes **that IP** mesh-routable and names it; HTTP(S)/L4 exposure
+happens through a NetBird reverse proxy the operator deploys in-cluster, wired
+from Gateway API manifests. **The mesh never routes ClusterIPs and the service
+CIDR is never advertised** — the only place a ClusterIP appears is as an
+in-cluster dial target of the in-cluster proxy.
 
-Why not ClusterIP: the service CIDR (`10.96.0.0/12`) is huge, allocated
+Why not route ClusterIPs: the service CIDR (`10.96.0.0/12`) is huge, allocated
 unpredictably across its whole range, identical on every default cluster (so two
-clusters collide), and is internal by design. An LB CIDR is small, deliberately
-chosen, and collision-free — the right thing to make routable. IP allocation is
-left to the existing LB (Cilium LB-IPAM, MetalLB, kgateway, a cloud LB); the
-operator owns only the NetBird overlay.
-
-## Layers
-
-| layer | object(s) | one per |
-|-------|-----------|---------|
-| overlay | `Network` + `NetworkRouter` | network |
-| reachability | `NetworkResource` (LB IP, per family) + `DNSRecord` (FQDN, A+AAAA) | LoadBalancer Service |
-| exposure | `ReverseProxyService` (FQDN + paths, internal **or** external) | exposed app |
+clusters collide), and internal by design. An LB CIDR is small, deliberately
+chosen, and collision-free. IP allocation stays with the existing LB (Cilium
+LB-IPAM, MetalLB, kube-vip, a cloud LB); the operator owns only the NetBird
+overlay.
 
 ## Layer 1 — NetBird-mirror CRDs
 
 All `netbird.io/v1alpha1`. Spec ≈ the NetBird request body; status carries the
-NetBird id. One generic reconciler drives them (`MirrorReconciler[T]` — finalizer,
-conditions, requeue, id bookkeeping shared; per-kind `apply`/`delete` closures
-supply the one typed API call).
+NetBird id. One generic reconciler drives them (`MirrorReconciler[T]`,
+`internal/controller/mirror.go` — finalizer, conditions, requeue, id bookkeeping
+shared; per-kind `apply`/`del` closures supply the typed API calls).
 
 | Kind | NetBird endpoint | notes |
 |------|------------------|-------|
 | `Network` | `POST /networks` | the network |
-| `NetworkRouter` | `POST /networks/{net}/routers` | **the routing peers — see below** |
+| `NetworkRouter` | `POST /networks/{net}/routers` | the routing peers — see below |
 | `NetworkResource` | `POST /networks/{net}/resources` | one address (an LB IP) |
-| `DNSZone` | `POST /dns/zones` (adopt-or-create) | admin-authored, or operator-owned (the LoadBalancer controller creates the LB zone, the ReverseProxyCluster its proxy zone) |
+| `DNSZone` | `POST /dns/zones` (adopt-or-create) | single-owner: admin-authored **or** owned by one controller (the LoadBalancer controller's LB zone, a ReverseProxyCluster's proxy zone) |
 | `DNSRecord` | `POST /dns/zones/{zone}/records` | A/AAAA/CNAME |
-| `ReverseProxyService` | `POST /reverse-proxies/services` | **the exposure layer — see below** |
-| `Group` / `SetupKey` | `groups` / `setup-keys` | unchanged |
+| `ReverseProxyService` | `POST /reverse-proxies/services` | the exposure primitive — see below |
+| `Group` / `SetupKey` | `groups` / `setup-keys` | unchanged since upstream |
+
+Two composite (non-mirror) CRDs sit beside them:
+
+- **`ReverseProxyCluster`** — deploys + enrolls a bring-your-own NetBird reverse
+  proxy: token Secret, proxy Deployment (`:8443` single SNI/HTTP listener,
+  `ndots:1`), LB Service (80/443 → 8443, PreferDualStack), DNSZone + A record +
+  `*.domain` catch-all CNAME, the account cluster registration and the custom
+  domain (Domain → clusterAddress) in NetBird.
+- **`ReverseProxyClusterParameters`** — the proxy "flavor"
+  (image/replicas/groups/private/serviceAnnotations/logLevel) a Gateway points
+  at via `spec.infrastructure.parametersRef`.
 
 ### `NetworkRouter` — peers via reuse *or* DaemonSet
 
-The router (a peer group bound to a network) is a thin mirror, plus a peer-source
-switch so an operator-managed DaemonSet and a pre-existing host NetBird install
+The router (a peer group bound to a network) is a thin mirror plus a peer-source
+switch, so an operator-managed DaemonSet and a pre-existing host NetBird install
 are both first-class:
 
 ```yaml
@@ -74,182 +81,315 @@ spec:
     group: kube01-nodes        #  reuse — an existing NetBird group (e.g. host netbird on the nodes)
     # deploy:                  #  or let the operator run a hostNetwork DaemonSet
     #   nodeSelector: {...}
-    #   image: ...             #  (operator defaults)
-    #   logLevel: info
 ```
 
-- **`peers.group`** → the operator creates only the NetBird router
-  (`PeerGroups: [resolved group]`) and deploys nothing. The node↔peer mapping
-  problem dissolves: you point at the *group* the node peers already belong to
-  (their setup key's auto-group), never at individual nodes.
+- **`peers.group`** → only the NetBird router is created (`PeerGroups:
+  [resolved group]`); nothing is deployed. The node↔peer mapping problem
+  dissolves: you point at the *group* the node peers already belong to.
 - **`peers.deploy`** → the operator creates a `Group` + `SetupKey` + a
-  `hostNetwork` DaemonSet (so each peer shares the node datapath that reaches the
+  `hostNetwork` DaemonSet (each peer shares the node datapath that reaches the
   LB IP), then the router pointing at that group.
 
-**Routing-peer placement caveat (DaemonSet mode).** A routing peer can only serve
-an LB IP it can deliver to a backend. With the LB Service's
-`externalTrafficPolicy: Cluster` (default) any node works → peers can be sparse.
-With `Local`, only nodes running a backend endpoint serve the IP → the DaemonSet
-must co-locate with those endpoints. Default to a broad `nodeSelector` and assume
-`Cluster`. Do not try to auto-discover Cilium's L2/BGP announcing nodes (brittle).
+**Placement caveat (DaemonSet mode).** With the LB Service's
+`externalTrafficPolicy: Cluster` (default) any node delivers → peers can be
+sparse. With `Local`, only endpoint-bearing nodes serve the IP → the DaemonSet
+must co-locate with them. Default to a broad `nodeSelector` and assume
+`Cluster`. Do not auto-discover Cilium's L2/BGP announcing nodes (brittle).
 
 ### `ReverseProxyService` — the one exposure primitive
 
-Admin-authored. Exposes an app **internally or externally** through the NetBird
-reverse proxy, referencing the **DNSRecord that belongs to a Service** (the
-dualstack FQDN → LB IP) as the upstream, with path/host awareness:
+Exposes an app through a NetBird reverse proxy — internal (`private: true`,
+mesh-only) or external, HTTP (default), TLS-terminating, or raw TCP/UDP
+(`mode`), authored by an admin or translated from an `HTTPRoute`:
 
 ```yaml
 kind: ReverseProxyService
 spec:
-  domain: search.ccbash.de
+  domain: search.ccbash.de       # required, globally unique per NetBird service
   proxyCluster: gate.ccbash.de
-  private: false                 # external; true = internal mesh-only (same CRD)
-  passHostHeader: true           # advanced toggles, optional
-  rewriteRedirects: false
+  private: false
   backends:
-    - serviceRef: { name: searxng }   # a type=LoadBalancer Service
-      path: /                         # optional path prefix
-      # port: 80                      # optional; defaults to the Service's first port
+    - serviceRef: { name: searxng }
+      path: /                    # optional path prefix
+      # port: 80                 # optional; defaults to the Service's first port
 ```
 
-Per backend the operator builds a proxy target: **`Host` = the backend Service's
-DNSRecord FQDN** (resolves, via the zone, to the LB IP routed through the
-`NetworkRouter` peers — dualstack-transparent), **`Port`** = the backend port,
-**`Path`** = the backend path, `TargetId` = the cluster's **CNAME address** (not
-a proxy-node id), `Options.DirectUpstream: true`. The proxy never sees a raw IP
-or an address family.
+Backend resolution (`resolveBackend`) depends on the Service type:
 
-## Layer 2 — translation
+- **`type=LoadBalancer`** → the proxy dials the Service's advertised dualstack
+  mesh FQDN (its operator-published `DNSRecord`), over the overlay; not-yet
+  advertised is a not-ready dependency, not an error.
+- **any other type (ClusterIP)** → the proxy dials
+  `<svc>.<ns>.svc.cluster.local` directly — it runs in-cluster, so no routable
+  IP per app is needed. This is the Gateway/HTTPRoute default path.
 
-The operator watches **`Service type=LoadBalancer`** (which includes
-Gateway-provisioned LB Services; a Gateway's address is also in
-`Gateway.status.addresses`).
+Targets always carry `DirectUpstream: true` and reference the cluster's **CNAME
+address** (never a proxy-node id). NetBird enforces **one service per domain**;
+multi-port L4 under one hostname is solved by synthesizing per-port sibling
+domains `<first-label>-<portName>.<parent>` (e.g. `mail-smtp.example.com`) —
+the parent must be the registered custom domain.
 
-**Scoping — default-on, namespace opt-out.** A Service is advertised when it has
+## Layer 2a — LoadBalancer reachability
+
+The operator watches `Service type=LoadBalancer` (which includes LB Services a
+third-party Gateway controller provisions). A Service is advertised when it has
 an allocated `status.loadBalancer.ingress` and the advertise decision resolves
-to true, most-specific wins:
+true, most-specific wins:
 
-1. operator default — `advertiseLoadBalancers: true` (flip to `false` for a
-   default-off / namespace-opt-in posture);
+1. operator default — `--advertise-loadbalancers` (default `true`);
 2. namespace annotation `netbird.io/advertise: "true"|"false"`;
 3. Service annotation `netbird.io/advertise: "true"|"false"`.
 
-Namespace-level is the primary lever because Gateway-provisioned LB Services are
-generated and awkward to annotate individually. The target `Network` is the
-cluster's single `Network` by default, or a namespace annotation
-`netbird.io/network: <name>` for multi-network setups. Advertising is *automatic*
-(no opt-in CRD); it makes the name resolvable and the IP routable, but grants no
-access — that stays gated by NetBird policies, and nothing is published through
-the proxy until a `ReverseProxyService` is authored.
+Per advertised Service: a **`DNSRecord`** `<svc>-<ns>.<zone>` (one A per IPv4,
+one AAAA per IPv6 ingress — a single dualstack name) and a **`NetworkResource`**
+per family (`/32`, `/128`). The IP-family fan-out lives **only here**
+(`serviceaddr.go`); everything above deals in FQDNs. Children are labeled
+`netbird.io/loadbalancer`, pruned per family, GC'd with the Service — never
+hand-authored for an advertised Service.
 
-For each advertised LB Service:
+Advertising grants **reachability, not access**: the name resolves and the IP
+routes, but access stays gated by NetBird policies, and nothing is published
+through a proxy until an exposure object exists.
 
-- **`DNSRecord`** `<svc>-<ns>.<zone>` with one **A** per IPv4 and one **AAAA**
-  per IPv6 `status.loadBalancer.ingress` address — a single **dualstack name**,
-  so whoever resolves it gets whichever family they speak.
-- **`NetworkResource`** per LB-IP family (`/32`, `/128`) so both are routable.
+## Layer 2b — Gateway API exposure (opt-in, `--enable-gateway-api`)
 
-The IP-family fan-out lives **only here** (reusing `familyAddresses` /
-`dnsRecordTypeFor` from `serviceaddr.go`, now over LB ingress IPs instead of
-ClusterIPs). Nothing above this layer — `ReverseProxyService`, the exposure model
-— ever deals with families or raw IPs; it deals with the FQDN.
+The operator is a **GatewayClass + Gateway + HTTPRoute controller**
+(`controllerName: netbird.io/gateway-controller`,
+`internal/controller/gateway_controller.go`). Gateway API is the *authoring
+layer*; the NetBird reverse proxy is the data plane; `ReverseProxyCluster` /
+`ReverseProxyService` are the translation targets.
 
-`ReverseProxyService` then translates into a NetBird reverse-proxy service whose
-cluster targets point at those FQDNs with the route's paths.
+- **GatewayClass** — created and owned by the operator (default `netbird`),
+  self-healed if deleted; any class with our controllerName is Accepted.
+- **Gateway → `ReverseProxyCluster`.** The proxy config derives from the
+  **first TLS-terminating listener with a hostname and a certificateRef**:
+  `domain` = hostname minus `*.`, `clusterAddress` = `gate.<domain>`, cert =
+  `tls.certificateRefs[0]` (issued e.g. by cert-manager's gateway-shim). The
+  flavor comes from the referenced `ReverseProxyClusterParameters`. Gateway
+  status (`Accepted`/`Programmed`/`.addresses` = proxy LB IP, listener
+  conditions) reflects the owned cluster.
+- **HTTPRoute → `ReverseProxyService`s** — one child per admitted (route,
+  hostname), labeled `gateway.netbird.io/httproute`, pruned when no longer
+  desired, name = readable head + 8-hex hash of the raw (route, hostname) pair
+  (collision-free by construction).
+- **Admission**: a hostname is admitted iff it falls **under the registered
+  domain** and **some listener** both hostname-matches it and permits the
+  route's namespace (both checks on the same listener). Hostname-less routes
+  inherit the concrete (non-wildcard) listener hostnames; wildcard-only
+  Gateways fail them closed.
+- **Fail closed, order-independent**: route semantics the proxy can't
+  faithfully represent — Exact/Regex path matches, differing backend weights,
+  zero surviving backends (all `weight: 0`), > 64 path×backend combinations —
+  reject the whole route with `Accepted=False` and an accurate
+  `UnsupportedValue` message, never a silently-widened or silently-dropped
+  translation. ORed PathPrefixes all translate (path × backendRef fan-out);
+  `weight: 0` backends receive no traffic.
+
+Design + rationale: [`design/byop-gateway.md`](design/byop-gateway.md).
 
 ## DNS
 
-Zones are **admin-managed** (a `DNSZone` mirror, authored or adopted by name).
-The operator only writes A/AAAA/CNAME records into the zone it is pointed at. How
-internal vs public names are arranged (split-horizon, internal-only domains) is
-out of scope — the operator does no horizon logic.
+Zones are **single-owner**. The owner is an admin (an authored/adopted
+`DNSZone`) or exactly one operator controller (the LoadBalancer controller's LB
+zone; a ReverseProxyCluster's proxy zone) — never two writers. The operator does
+no split-horizon logic; how internal vs public names are arranged is out of
+scope.
 
 ## Cluster API proxy
 
-`ClusterProxy` is a standalone capability (independent of the LB-IP exposure
-model): it puts the Kubernetes API server itself on the NetBird mesh, so
-operators reach `kubectl` over the tunnel with their NetBird identity instead of
-a public ingress or a VPN.
+`ClusterProxy` is a standalone capability (independent of the exposure model):
+it puts the Kubernetes API server itself on the NetBird mesh, so operators reach
+`kubectl` over the tunnel with their NetBird identity instead of a public
+ingress or a VPN.
 
 The controller (`clusterproxy_controller.go`) reconciles one `ClusterProxy`
 (`clusterName`, `apiServer`, `serviceAccountName`, `groups`) into:
 
-1. a **`SetupKey`** — ephemeral, `allowExtraDnsLabels: true`, `autoGroups` copied
-   from `spec.groups`;
+1. a **`SetupKey`** — ephemeral, `allowExtraDnsLabels: true`, `autoGroups`
+   copied from `spec.groups`;
 2. a **Secret** holding the operator's NetBird management **API key**;
 3. a 3-replica **Deployment** of `netbird-kubeapi-proxy` (image pinned in
    `internal/version`), hostname-spread, running as `spec.serviceAccountName`.
 
-**How a client connects (the netbird-cli link).** Each proxy pod joins the mesh
-as a NetBird peer (`--setup-key` + `--management-url`) and — because the setup
-key allows extra DNS labels — registers **`<cluster-name>.netbird-kubeapi-proxy`**.
-A user on the same mesh (via the netbird CLI/daemon) points their kubeconfig
-`server:` at that mesh-only name; the replicas share the label, so NetBird load-
-balances across them. The proxy reads the caller's NetBird peer identity, uses
-the management **API key** to resolve that peer's NetBird groups, and
-**impersonates** a matching Kubernetes user/group — so the proxy itself holds
-only `impersonate` rights and the *effective* permissions come from whatever
-RBAC binds the impersonated group (e.g. a NetBird group `kubernetes-admin`
-mapped to `cluster-admin`).
+Each proxy pod joins the mesh as a peer and registers
+**`<cluster-name>.netbird-kubeapi-proxy`** (extra DNS label). A mesh user points
+their kubeconfig `server:` at that name; replicas share the label, NetBird
+load-balances. The proxy reads the caller's NetBird peer identity, resolves the
+peer's groups via the management API key, and **impersonates** a matching
+Kubernetes user/group — the proxy holds only `impersonate` rights; effective
+permissions come from whatever RBAC binds the impersonated group.
 
-**Do not break (these are what the CLI link depends on):**
+**Do not break (the CLI link depends on these):**
 
-- **`spec.clusterName`** derives the DNS label in every client kubeconfig — it is
-  immutable (CEL) for this reason. Renaming it orphans every client.
-- **`--management-url`** must point at the self-hosted NetBird, or the setup key
-  is rejected as invalid (this was the v0.6.0 regression that forced downstream
-  to hand-roll the proxy; fixed — the controller forwards it).
-- **`allowExtraDnsLabels: true`** on the setup key — without it the DNS label is
-  never registered. Immutable.
+- **`spec.clusterName`** derives the DNS label in every client kubeconfig —
+  immutable (CEL). Renaming it orphans every client.
+- **`--management-url`** must point at the self-hosted NetBird, or the setup
+  key is rejected (the v0.6.0 regression; fixed — the controller forwards it).
+- **`allowExtraDnsLabels: true`** on the setup key — without it the DNS label
+  is never registered. Immutable.
 - **the management API key** in the proxy Secret — required for peer→group
-  resolution; it is a powerful credential by design.
-- The impersonation RBAC (`serviceAccountName`'s `impersonate` ClusterRole, and
-  the group→ClusterRole bindings) is **operator-external** — the controller
-  references the ServiceAccount but does not create it or the RBAC.
+  resolution; a powerful credential by design.
+- The impersonation RBAC (`serviceAccountName`'s `impersonate` ClusterRole and
+  the group→ClusterRole bindings) is **operator-external** — referenced, never
+  created.
 
 These surfaces are pinned by `clusterproxy_controller_test.go`.
 
-## Dropped relative to v0.11.x
+---
 
-- **The operator's own `Gateway` / `GatewayClass`** and the
-  `gateway.netbird.io/Network` listener trick. The operator consumes *existing*
-  LoadBalancer Services (Gateway-provisioned or bare); the opt-in is authoring a
-  `ReverseProxyService` (and `Network` + `NetworkRouter`).
-  - *Re-introduced as a first-class Gateway controller in v0.12 (opt-in,
-    `--enable-gateway-api`):* the operator is a **GatewayClass + Gateway
-    controller** (`controllerName: netbird.io/gateway-controller`). The operator
-    **creates and owns its `GatewayClass`** (default `netbird`) and self-heals it.
-    Each **`Gateway`** of that class points `spec.infrastructure.parametersRef` at
-    a namespaced **`ReverseProxyClusterParameters`** (the "flavor":
-    image/replicas/groups/private/serviceAnnotations) and becomes one NetBird
-    bring-your-own reverse proxy: the operator derives `domain` (listener hostname
-    minus `*.`), `clusterAddress`
-    (`gate.<domain>`) and the cert (listener `tls.certificateRefs`) from the
-    Gateway's listeners, and **creates an owned `ReverseProxyCluster`** (proxy
-    Deployment + LB Service + DNS + custom domain). The Gateway's `status`
-    (`Accepted`, `Programmed`, `.addresses` = the proxy LB IP, per-listener
-    conditions) reflects that cluster. **`HTTPRoute`s** attached to the Gateway
-    become **`ReverseProxyService`s** targeting it. The proxy — not the operator —
-    is the data plane. See [`design/byop-gateway.md`](design/byop-gateway.md).
-- **ClusterIP exposure** — per-backend ClusterIP `NetworkResource`s and the
-  `<svc>-<ns>` records pointing at ClusterIPs. Replaced by LB-IP records.
-- **The Gateway-owned DNSZone** — DNS is admin-managed.
+## Guard rails
 
-Unchanged: the mirror CRDs, the generic reconciler, the dualstack/adopt-or-create
-helpers, `Group`/`SetupKey`, `ClusterProxy`, the Pod sidecar webhook.
+What keeps the architecture from regressing or flip-flopping. **A PR that
+crosses one of these needs an explicit rationale in the PR description and an
+update to this document in the same change** — silence is a review reject.
 
-## Implemented vs this document
+### Settled decisions (do not re-litigate)
 
-This document is the design; the build matches it, with these concrete shapes:
-`ReverseProxyService.spec.backends[]` (`serviceRef` / `port` / `path`) — there is
-no `routeRef`/`rules`; the cluster `TargetId` is the cluster's CNAME **address**;
-the `--advertise-loadbalancers` flag (chart value `advertiseLoadBalancers`) sets
-the operator default. The status helpers GET-verify a recorded NetBird id and
-recreate when it was deleted out of band.
+Each of these was decided deliberately, some after building the alternative.
+Reversing one is an architecture change, not a refactor:
+
+1. **The mesh routes LB IPs, never ClusterIPs / the service CIDR.** The
+   in-cluster proxy dialing a ClusterIP backend directly is not mesh routing
+   and does not weaken this.
+2. **Gateway API is the authoring layer, not the data plane.** The operator
+   translates Gateway/HTTPRoute into `ReverseProxyCluster`/`ReverseProxyService`;
+   the NetBird proxy serves traffic. v0.11 dropped an operator-owned Gateway
+   data plane; v0.12 re-introduced Gateway API strictly as translation. Do not
+   grow a data-plane component again.
+3. **One exposure primitive.** `ReverseProxyService` — hand-authored or
+   translated. No parallel exposure CRD, no `routeRef`/`rules` re-invention.
+4. **DNS zones are single-owner; external-dns never writes a NetBird zone the
+   operator manages** (records flap created-then-deleted each reconcile).
+5. **One NetBird service per domain**; multi-port L4 = synthesized per-port
+   sibling domains, not multiple services on one domain.
+6. **Cluster targets reference the cluster CNAME address**, not a proxy-node id.
+7. **Routing-peer placement is declared, not discovered** — no auto-detection
+   of LB announcing nodes.
+8. **Reachability ≠ access.** Advertising never creates NetBird policies.
+
+### Development guard rails
+
+Invariants the reconcilers must uphold — most were bugs once; the listed tests
+pin them. When you add a controller, hold it to the same list.
+
+- **Delete guards compare the recorded identity, never a mutable spec field.**
+  A delete keyed on `Status.ZoneID` / `Status.ClusterAddress` / `Status.DomainID`
+  must decide "shared?" on that same key (spec fields may drift via renames).
+  Pinned by the `DNSZone sharing` and `ReverseProxyCluster` deletion specs in
+  `redesign_test.go`.
+- **Shared NetBird objects are deleted by the last CR standing.** Adoption
+  (by name/domain/address) implies shared ownership; a deleting CR skips the
+  NetBird delete while another live CR still uses the object.
+- **Verify what you adopt; GET-verify what you recorded.** An adopted object
+  must actually match the spec (e.g. a ReverseProxyDomain's `TargetCluster`);
+  a recorded id is GET-verified before reuse and recreated when deleted out of
+  band. Stale-but-unowned state is repaired; state owned by another live CR is
+  a **conflict surfaced as not-ready (`errDependencyNotReady` → requeue), never
+  fought over** — two controllers overwriting each other's NetBird object every
+  reconcile is the definition of flapping.
+- **Fail closed, order-independently.** Untranslatable semantics reject the
+  whole object with an accurate condition message; a check that scans a list
+  must scan the *whole* list (no first-match early return that hides a later
+  unsupported entry). Pinned by `TestRulePaths` / `TestRouteBackends`.
+- **Child names are collision-free by construction** (hash-suffixed), and
+  renaming a child-name scheme is a breaking change (one-time churn on
+  upgrade) — call it out in the PR. Pinned by `TestRouteChildName`.
+- **Status tells the truth in failure branches.** Every not-ready path must
+  reset the status fields it normally sets (`online`, `connectedProxies`, …) —
+  printcolumns must never show last-good values during an outage. Never clear
+  the fields `reconcileDelete` uses as delete keys.
+- **Idempotent renders.** An unchanged spec must render a byte-identical
+  NetBird request (sort targets, deterministic ordering) so reconciles are
+  no-ops, not updates.
+- **Mechanics**: new mirror CRD = a `mirror[T]` adapter + `NewXReconciler`;
+  children via generated apply-configurations + `client.ForceOwnership` +
+  `k8sutil.ControllerReference`; finalizers via `k8sutil.Finalizer`; status via
+  `patch.NewSerialPatcher` + conditions; self-requeue ~15m. Generated files
+  (`zz_generated.deepcopy.go`, `pkg/applyconfigurations/`, `config/crd/bases/`,
+  `docs/api-reference.md`) are never hand-edited — change the source, run
+  `make generate`. `make lint` + `make test-unit` green before merge; envtest
+  loads CRDs from `charts/netbird-operator/crds`, so a stale chart after an API
+  change surfaces as test failures.
+
+### Security guard rails
+
+- **Least-privilege RBAC, hand-maintained.** `charts/netbird-operator/templates/rbac.yaml`
+  is curated (no `controller-gen rbac`); a controller touching a new resource
+  updates it in the same PR — and nothing more than it needs.
+- **The management API key is the crown jewel.** It reaches the operator via
+  the `netbird-mgmt-api-key` Secret and is copied into the ClusterProxy proxy
+  Secret by design. Never log it, never put it in a CR, never widen who can
+  read those Secrets.
+- **Proxy enrollment tokens are one-shot and revoked.** The plain token exists
+  only in the owned Secret; `reconcileDelete` revokes it
+  (`ReverseProxyTokens.Delete`). Don't persist it anywhere else.
+- **TLS certs come from cert-manager Secrets; in-proxy ACME stays off**
+  (`NB_PROXY_ACME_CERTIFICATES=false`). The proxy must not solve challenges or
+  hold issuer credentials.
+- **Exposure is explicit.** `private: false` on a reverse-proxy service means
+  *internet-facing if the proxy is*. Defaults must never silently flip a
+  service from mesh-only to public; the Gateway path inherits `private` from
+  `ReverseProxyClusterParameters`, an admin-authored object.
+- **Admission boundaries are security boundaries.** A route hostname outside
+  the Gateway's registered domain, or from a namespace its listener doesn't
+  allow, is rejected — cross-namespace exposure requires the Gateway owner's
+  explicit `allowedRoutes.from: All`.
+- **ClusterProxy impersonation stays external.** The operator never creates the
+  `impersonate` ClusterRole or group bindings; granting cluster access is an
+  admin act. Keep the immutables (clusterName, allowExtraDnsLabels) immutable.
+- **All writes are server-side apply with `FieldOwner: "netbird-operator"`** —
+  ownership conflicts surface instead of silently stealing fields.
+- **The Pod webhook stays flag-gated** (`--enable-webhooks`); no NetBird API
+  key configured → no controllers registered (fail inert, not open).
+
+### Operations guard rails
+
+- **Self-healing window is ~15 minutes.** Reconcilers self-requeue to re-check
+  drift; out-of-band NetBird deletions (zones, registrations, services) repair
+  within that window. Don't "fix" drift by editing NetBird objects the operator
+  owns — it will win, and the interim is flapping.
+- **Never point external-dns (or any DNS sync) at an operator-managed NetBird
+  zone.** Two writers = records created-then-deleted every reconcile.
+- **Don't hand-author `NetworkResource`/`DNSRecord` for an advertised Service**
+  (label `netbird.io/loadbalancer`) or `ReverseProxyService` for a routed
+  HTTPRoute (label `gateway.netbird.io/httproute`) — the owning controller
+  prunes what it doesn't expect.
+- **Deleting one of several CRs sharing a NetBird object is safe** — the
+  registration/zone survives until the last CR standing, and a shared domain
+  re-points its target when the target CR goes away. Expect the survivor to
+  need up to one resync to converge.
+- **Upgrades that change child-name schemes churn once**: children are created
+  under the new name before the old ones are pruned; the NetBird
+  one-service-per-domain rule can bounce the new child until the old one's
+  finalizer clears — self-heals via backoff, budget a few error events.
+- **Watch `Ready`/`Accepted` conditions and events, not just workloads**:
+  `kubectl get reverseproxycluster` shows ONLINE/PROXIES (live, reset on
+  outage); advertised Services carry an `Advertised` event; rejected routes say
+  *why* in `Accepted=False` messages. `--metrics-bind-address` exposes
+  controller-runtime reconcile metrics.
+- **Proxy pods need `ndots:1`** (set by the operator): the NetBird search
+  domain otherwise hijacks external FQDNs (ACME, geo DB) and breaks egress.
+  Don't override the dnsConfig.
+- **`externalTrafficPolicy: Local` on an advertised Service** requires routing
+  peers on endpoint-bearing nodes (see NetworkRouter placement caveat).
+
+## History (decisions already flipped once — don't flip back)
+
+- **v0.11 → dropped** the operator-owned Gateway data plane
+  (`gateway.netbird.io/Network` listener trick), per-backend ClusterIP
+  `NetworkResource`s + ClusterIP DNS records, and the Gateway-owned DNSZone.
+- **v0.12 → re-introduced Gateway API as a translation layer only** (BYOP
+  `ReverseProxyCluster` + `HTTPRoute` → `ReverseProxyService`, proxy dials
+  ClusterIPs in-cluster), added the composite `ReverseProxyCluster` /
+  `ReverseProxyClusterParameters`, L4 modes with per-port sibling domains, and
+  the shared-registration ownership rules under Development guard rails.
 
 ## Open details
 
 - **Bare-L4 reachability.** A non-HTTP LoadBalancer Service is reachable by its
-  `DNSRecord` + `NetworkResource` directly (no reverse proxy); confirm whether
-  L4 exposure through the proxy needs anything beyond the reachability layer.
+  `DNSRecord` + `NetworkResource` directly (no reverse proxy); L4 exposure
+  *through the proxy* exists via `mode: tcp|udp` — confirm whether anything
+  beyond the reachability layer is needed for proxy-less L4.
+- **HTTP cluster targets.** NetBird `cluster` ServiceTargets could let the
+  proxy path drop the per-service mesh FQDN hop entirely; tracked as a backlog
+  item, would not change the exposure model.
