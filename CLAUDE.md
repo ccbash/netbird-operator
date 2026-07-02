@@ -7,7 +7,7 @@ NetBird Kubernetes Operator: mirrors NetBird API objects as Kubernetes CRDs, adv
 **`docs/architecture.md` is the single source of truth for architecture** — read it before any structural or controller change:
 
 - *Scope / layers / Implementation map* — what the operator is, what it deliberately is not, and where each piece lives in the code.
-- *Guard rails* — the review checklist. **Settled decisions are not up for re-litigation; a change crossing a guard rail needs an explicit rationale in the PR and an update to that document in the same change.** The *Development* guard rails double as the reconciler conventions to match when editing (identity-keyed delete guards, conflict-as-not-ready instead of reconcile wars, order-independent fail-close, collision-free child names, truthful failure-branch status, idempotent renders, and the shared mechanics for mirror adapters/finalizers/status patching).
+- *Guard rails* — the review checklist. **Settled decisions are not up for re-litigation; a change crossing a guard rail needs an explicit rationale in the PR and an update to that document in the same change.** The *Development* guard rails double as the reconciler conventions to match when editing — read them there, they are not restated here.
 
 ## Commands
 

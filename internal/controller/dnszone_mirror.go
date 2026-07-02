@@ -123,15 +123,8 @@ func dnsZoneSharedByOther(ctx context.Context, c client.Client, z *nbv1alpha1.DN
 	if err := c.List(ctx, &list); err != nil {
 		return false, err
 	}
-	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == z.UID || !other.DeletionTimestamp.IsZero() {
-			continue
-		}
-		if other.Spec.Name == z.Spec.Name ||
-			(z.Status.ZoneID != "" && other.Status.ZoneID == z.Status.ZoneID) {
-			return true, nil
-		}
-	}
-	return false, nil
+	return anotherLiveMatches(z, list.Items, func(other *nbv1alpha1.DNSZone) bool {
+		return other.Spec.Name == z.Spec.Name ||
+			(z.Status.ZoneID != "" && other.Status.ZoneID == z.Status.ZoneID)
+	}), nil
 }
