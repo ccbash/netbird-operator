@@ -102,8 +102,17 @@ func deleteDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *
 	// applyDNSZone adopts a NetBird zone by Name, so two DNSZone CRs with the same
 	// spec.Name share one zone id. Don't delete the shared zone while another
 	// (non-deleting) CR still owns it — that would wipe it out from under the
-	// survivor; let the last CR standing remove it.
-	shared, err := dnsZoneSharedByOther(ctx, c, z)
+	// survivor; let the last CR standing remove it. Survivors that haven't
+	// adopted yet (empty Status.ZoneID) are matched by the zone's *live* name —
+	// this CR's spec.Name may have been renamed after the id was recorded.
+	zone, err := nb.DNSZones.GetZone(ctx, z.Status.ZoneID)
+	if netbird.IsNotFound(err) {
+		return nil // already gone
+	}
+	if err != nil {
+		return err
+	}
+	shared, err := dnsZoneSharedByOther(ctx, c, z, zone.Name)
 	if err != nil {
 		return err
 	}
@@ -114,17 +123,15 @@ func deleteDNSZone(ctx context.Context, nb *netbird.Client, c client.Client, z *
 }
 
 // dnsZoneSharedByOther reports whether another (non-deleting) DNSZone CR owns
-// the same NetBird zone. The delete is keyed on Status.ZoneID, so that recorded
-// id is what must be compared — spec.Name is mutable, and a renamed CR would
-// otherwise slip past the guard and wipe the zone from under the survivor. The
-// name comparison stays for a same-name CR that hasn't adopted the zone yet.
-func dnsZoneSharedByOther(ctx context.Context, c client.Client, z *nbv1alpha1.DNSZone) (bool, error) {
+// the NetBird zone recorded in z — by the recorded zone id (the delete key), or
+// by declaring the zone's live name (adoption-by-name that hasn't happened yet).
+func dnsZoneSharedByOther(ctx context.Context, c client.Client, z *nbv1alpha1.DNSZone, zoneName string) (bool, error) {
 	var list nbv1alpha1.DNSZoneList
 	if err := c.List(ctx, &list); err != nil {
 		return false, err
 	}
 	return anotherLiveMatches(z, list.Items, func(other *nbv1alpha1.DNSZone) bool {
-		return other.Spec.Name == z.Spec.Name ||
+		return other.Spec.Name == zoneName ||
 			(z.Status.ZoneID != "" && other.Status.ZoneID == z.Status.ZoneID)
 	}), nil
 }

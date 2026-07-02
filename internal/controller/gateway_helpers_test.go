@@ -140,8 +140,39 @@ func TestRouteBackends(t *testing.T) {
 
 	t.Run("all weight zero fails closed", func(t *testing.T) {
 		r := route(gwv1.HTTPRouteRule{BackendRefs: []gwv1.HTTPBackendRef{backendRef("a", ptrTo(int32(0)))}})
-		if _, reason, ok := routeBackends(r); ok || !strings.Contains(reason, "no backends") {
-			t.Fatalf("expected no-backends fail-close, got ok=%v reason=%q", ok, reason)
+		if _, reason, ok := routeBackends(r); ok || !strings.Contains(reason, "routes no traffic") {
+			t.Fatalf("expected no-traffic fail-close, got ok=%v reason=%q", ok, reason)
+		}
+	})
+
+	t.Run("a backend-less rule among healthy ones fails closed", func(t *testing.T) {
+		// Its paths would otherwise silently fall through to the other rule's
+		// backends — e.g. a redirect-only /admin rule served by the / backend.
+		r := route(
+			gwv1.HTTPRouteRule{BackendRefs: []gwv1.HTTPBackendRef{backendRef("app", nil)}},
+			gwv1.HTTPRouteRule{Matches: []gwv1.HTTPRouteMatch{{Path: &gwv1.HTTPPathMatch{Type: &prefix, Value: ptrTo("/admin")}}}},
+		)
+		if _, reason, ok := routeBackends(r); ok || !strings.Contains(reason, "routes no traffic") {
+			t.Fatalf("expected per-rule fail-close, got ok=%v reason=%q", ok, reason)
+		}
+	})
+
+	t.Run("rule filters fail closed", func(t *testing.T) {
+		r := route(gwv1.HTTPRouteRule{
+			Filters:     []gwv1.HTTPRouteFilter{{Type: gwv1.HTTPRouteFilterRequestRedirect}},
+			BackendRefs: []gwv1.HTTPBackendRef{backendRef("app", nil)},
+		})
+		if _, reason, ok := routeBackends(r); ok || !strings.Contains(reason, "filters") {
+			t.Fatalf("expected filter fail-close, got ok=%v reason=%q", ok, reason)
+		}
+	})
+
+	t.Run("backendRef filters fail closed", func(t *testing.T) {
+		br := backendRef("app", nil)
+		br.Filters = []gwv1.HTTPRouteFilter{{Type: gwv1.HTTPRouteFilterURLRewrite}}
+		r := route(gwv1.HTTPRouteRule{BackendRefs: []gwv1.HTTPBackendRef{br}})
+		if _, reason, ok := routeBackends(r); ok || !strings.Contains(reason, "filters") {
+			t.Fatalf("expected filter fail-close, got ok=%v reason=%q", ok, reason)
 		}
 	})
 }
@@ -179,6 +210,22 @@ func TestGatewayAdmitsRoute(t *testing.T) {
 	foreign := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "elsewhere"}}
 	if gatewayAdmitsRoute(gw, foreign, "app.foo.com", cfg) {
 		t.Fatal("admitted a foreign-namespace route past the default Same policy")
+	}
+
+	// A hostname-less catch-all listener (a common :80 redirect listener) with a
+	// permissive allowedRoutes must not leak admission onto the proxy: it matches
+	// every hostname, but it is not under the registered domain.
+	fromAll := gwv1.NamespacesFromAll
+	gw.Spec.Listeners = append(gw.Spec.Listeners, gwv1.Listener{
+		Name:          "http",
+		AllowedRoutes: &gwv1.AllowedRoutes{Namespaces: &gwv1.RouteNamespaces{From: &fromAll}},
+	})
+	if gatewayAdmitsRoute(gw, foreign, "app.foo.com", cfg) {
+		t.Fatal("a hostname-less From=All listener bypassed the proxy listeners' namespace scoping")
+	}
+	// The same-namespace route stays admitted via the under-domain listeners.
+	if !gatewayAdmitsRoute(gw, route, "app.foo.com", cfg) {
+		t.Fatal("under-domain admission broke when a catch-all listener is present")
 	}
 }
 
@@ -227,6 +274,33 @@ func TestAdmittedHostnames(t *testing.T) {
 	apex.AllowedRoutes = allowAll
 	if got := admittedHostnames(gw(apex), foreign, cfg); !slices.Equal(got, []string{"foo.com"}) {
 		t.Fatalf("From=All did not admit the foreign namespace: %v", got)
+	}
+}
+
+func TestListenerAttachedRoutes(t *testing.T) {
+	gw := &gwv1.Gateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+	apex := gwv1.Listener{Name: "apex", Hostname: ptrTo(gwv1.Hostname("foo.com"))}
+	wild := gwv1.Listener{Name: "wild", Hostname: ptrTo(gwv1.Hostname("*.foo.com"))}
+	route := func(ns string, hostnames ...gwv1.Hostname) gwv1.HTTPRoute {
+		return gwv1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: ns},
+			Spec: gwv1.HTTPRouteSpec{
+				CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "gw"}}},
+				Hostnames:       hostnames,
+			},
+		}
+	}
+	routes := []gwv1.HTTPRoute{
+		route("ns", "app.foo.com"),      // wildcard listener only
+		route("ns", "foo.com"),          // apex listener only
+		route("ns"),                     // hostname-less: matches every listener
+		route("elsewhere", "x.foo.com"), // denied by default Same policy
+	}
+	if n := listenerAttachedRoutes(gw, wild, routes); n != 2 {
+		t.Fatalf("wildcard listener: want 2 attached, got %d", n)
+	}
+	if n := listenerAttachedRoutes(gw, apex, routes); n != 2 {
+		t.Fatalf("apex listener: want 2 attached, got %d", n)
 	}
 }
 

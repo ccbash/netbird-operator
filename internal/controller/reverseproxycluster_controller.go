@@ -122,6 +122,10 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	// 4. Wait for the LoadBalancer IP, then publish the proxy A record + catch-all.
 	ip, ok := r.serviceIP(ctx, rpc)
 	if !ok {
+		// Without an address the proxy can't be serving — don't leave last-good
+		// connectivity values behind on the printcolumns.
+		rpc.Status.Online = false
+		rpc.Status.ConnectedProxies = 0
 		return r.notReady(ctx, sp, rpc, "waiting for the proxy LoadBalancer IP")
 	}
 	rpc.Status.LoadBalancerIP = ip
@@ -130,13 +134,17 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	// 5. Ready once the proxy has enrolled (its cluster resolves at the address).
+	// Only a genuine not-found means not-enrolled; a transient Management API
+	// failure must not zero a healthy cluster's status or masquerade as an
+	// enrollment problem — it hard-errors into backoff instead.
 	cluster, err := netbirdutil.GetProxyClusterByAddress(ctx, r.Netbird, rpc.Spec.ClusterAddress)
-	if err != nil {
-		// The cluster is unresolvable — don't leave last-good connectivity values
-		// behind (the ONLINE/PROXIES printcolumns would keep reporting a live proxy).
+	if errors.Is(err, netbirdutil.ErrProxyClusterNotFound) {
 		rpc.Status.Online = false
 		rpc.Status.ConnectedProxies = 0
 		return r.notReady(ctx, sp, rpc, "waiting for the proxy to enroll at %s", rpc.Spec.ClusterAddress)
+	}
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 	rpc.Status.ClusterAddress = rpc.Spec.ClusterAddress
 	// Surface the proxy's connectivity (embedded client heartbeat) for visibility.
@@ -186,16 +194,30 @@ func (r *ReverseProxyClusterReconciler) reconcileDelete(ctx context.Context, sp 
 		}
 	}
 	if rpc.Status.DomainID != "" {
-		domainShared, err := r.anotherClusterMatches(ctx, rpc, func(other *nbv1alpha1.ReverseProxyCluster) bool {
-			return other.Spec.Domain == rpc.Spec.Domain || other.Status.DomainID == rpc.Status.DomainID
-		})
+		// Compare survivors against the registration's *live* domain, not this
+		// CR's spec.Domain — the spec may have been renamed after the id was
+		// recorded, and a survivor that declared the old domain but hasn't
+		// adopted yet (empty Status.DomainID) would otherwise match neither arm.
+		domains, err := r.Netbird.ReverseProxyDomains.List(ctx)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if !domainShared {
-			if err := r.Netbird.ReverseProxyDomains.Delete(ctx, rpc.Status.DomainID); err != nil && !netbird.IsNotFound(err) {
+		for _, d := range domains {
+			if d.Id != rpc.Status.DomainID {
+				continue
+			}
+			domainShared, err := r.anotherClusterMatches(ctx, rpc, func(other *nbv1alpha1.ReverseProxyCluster) bool {
+				return other.Spec.Domain == d.Domain || other.Status.DomainID == rpc.Status.DomainID
+			})
+			if err != nil {
 				return ctrl.Result{}, err
 			}
+			if !domainShared {
+				if err := r.Netbird.ReverseProxyDomains.Delete(ctx, rpc.Status.DomainID); err != nil && !netbird.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+			}
+			break
 		}
 	}
 	if rpc.Status.ClusterAddress != "" {
@@ -250,6 +272,16 @@ func (r *ReverseProxyClusterReconciler) ensureDomain(ctx context.Context, rpc *n
 		if owned {
 			return "", fmt.Errorf("%w: custom domain %s already targets cluster %s owned by another ReverseProxyCluster",
 				errDependencyNotReady, rpc.Spec.Domain, target)
+		}
+		// No CR owns the target — but a registration pointed at a cluster that
+		// still exists in the account was set up out of band (an unmanaged
+		// proxy). Surface that as a conflict too; only a target that is truly
+		// gone is dead state to repair.
+		if _, err := netbirdutil.GetProxyClusterByAddress(ctx, r.Netbird, target); err == nil {
+			return "", fmt.Errorf("%w: custom domain %s targets existing cluster %s not managed by this operator",
+				errDependencyNotReady, rpc.Spec.Domain, target)
+		} else if !errors.Is(err, netbirdutil.ErrProxyClusterNotFound) {
+			return "", err
 		}
 		if err := r.Netbird.ReverseProxyDomains.Delete(ctx, d.Id); err != nil && !netbird.IsNotFound(err) {
 			return "", err

@@ -658,8 +658,11 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(clusters).To(HaveLen(1))
 			Expect(clusters[0].Address).To(Equal("gate-b.shared.test"))
 
-			// B's next reconcile finds the registration targeting the now-unowned
-			// gate-a and replaces it with one targeting itself: self-healed.
+			// B's next reconcile finds the registration targeting the now-unowned,
+			// no-longer-existing gate-a and replaces it with one targeting itself:
+			// self-healed. (Fresh client: the per-client cluster cache still holds
+			// the deleted gate-a; production converges after the 30s TTL.)
+			r = &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: controls.NewClient(), ManagementURL: "https://mgmt.test"}
 			_, err = reconcileOnce(r, "gate-b")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(b), b)).To(Succeed())
@@ -697,6 +700,73 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			clusters, err = nbClient.ReverseProxyClusters.List(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(clusters).To(BeEmpty())
+		})
+
+		It("does not hijack a registration targeting an unmanaged live cluster", func() {
+			// Registration created out of band, pointing at a proxy cluster that
+			// exists in the account but is owned by no ReverseProxyCluster CR.
+			controls.AddProxyCluster("c-ext", "gate-ext.ext.test")
+			_, err := nbClient.ReverseProxyDomains.Create(ctx, api.ReverseProxyDomainRequest{
+				Domain:        "ext.test",
+				TargetCluster: "gate-ext.ext.test",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			rpc := readyRPC(r, "ext", "ext.test", "gate.ext.test")
+			Expect(meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeFalse())
+			ready := meta.FindStatusCondition(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)
+			Expect(ready.Message).To(ContainSubstring("not managed by this operator"))
+
+			domains, err := nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(HaveLen(1))
+			Expect(domains[0].TargetCluster).To(HaveValue(Equal("gate-ext.ext.test"))) // untouched
+		})
+
+		It("protects the shared domain when the deleting CR's spec.Domain has drifted", func() {
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			a := readyRPC(r, "drift-a", "drift.test", "gate-a.drift.test")
+			Expect(meta.IsStatusConditionTrue(a.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeTrue())
+
+			// B declares the same domain but has not reconciled (no recorded ids).
+			b := &nbv1alpha1.ReverseProxyCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "drift-b", Namespace: ns},
+				Spec:       nbv1alpha1.ReverseProxyClusterSpec{ClusterAddress: "gate-b.drift.test", Domain: "drift.test"},
+			}
+			Expect(k8sClient.Create(ctx, b)).To(Succeed())
+
+			// A's spec.Domain is renamed and A deleted before re-reconciling: the
+			// guard must compare B against the registration's live domain, not A's
+			// drifted spec.
+			a.Spec.Domain = "renamed.test"
+			Expect(k8sClient.Update(ctx, a)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, a)).To(Succeed())
+			_, err := reconcileOnce(r, "drift-a")
+			Expect(err).NotTo(HaveOccurred())
+
+			domains, err := nbClient.ReverseProxyDomains.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(domains).To(HaveLen(1))
+			Expect(domains[0].Domain).To(Equal("drift.test")) // survived for B
+		})
+
+		It("resets connectivity while waiting for the LoadBalancer IP", func() {
+			r := &ReverseProxyClusterReconciler{Client: k8sClient, Netbird: nbClient, ManagementURL: "https://mgmt.test"}
+			rpc := readyRPC(r, "lbwait", "lbwait.test", "gate.lbwait.test")
+			Expect(rpc.Status.Online).To(BeTrue())
+
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "reverseproxycluster-lbwait", Namespace: ns}, svc)).To(Succeed())
+			svc.Status.LoadBalancer.Ingress = nil
+			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
+
+			_, err := reconcileOnce(r, "lbwait")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rpc), rpc)).To(Succeed())
+			Expect(meta.IsStatusConditionTrue(rpc.Status.Conditions, nbv1alpha1.ReadyCondition)).To(BeFalse())
+			Expect(rpc.Status.Online).To(BeFalse())
+			Expect(rpc.Status.ConnectedProxies).To(BeZero())
 		})
 	})
 
@@ -741,6 +811,42 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			_, err = nbClient.DNSZones.GetZone(ctx, sharedID)
 			Expect(err).To(HaveOccurred())
+		})
+
+		It("protects a survivor that has not adopted yet from a renamed deleter", func() {
+			r := NewDNSZoneReconciler(k8sClient, nbClient, nil)
+			a := &nbv1alpha1.DNSZone{
+				ObjectMeta: metav1.ObjectMeta{Name: "pre-a", Namespace: ns},
+				Spec:       nbv1alpha1.DNSZoneSpec{Name: "pre", Domain: "pre.test", Enabled: true},
+			}
+			Expect(k8sClient.Create(ctx, a)).To(Succeed())
+			_, err := reconcileOnce(r, "pre-a")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(a), a)).To(Succeed())
+			zoneID := a.Status.ZoneID
+
+			// B declares the same zone name but never reconciles (no ZoneID yet);
+			// A is renamed and deleted before re-reconciling, so the live zone
+			// still carries the name B will adopt by.
+			b := &nbv1alpha1.DNSZone{
+				ObjectMeta: metav1.ObjectMeta{Name: "pre-b", Namespace: ns},
+				Spec:       nbv1alpha1.DNSZoneSpec{Name: "pre", Domain: "pre.test", Enabled: true},
+			}
+			Expect(k8sClient.Create(ctx, b)).To(Succeed())
+			a.Spec.Name = "pre-renamed"
+			Expect(k8sClient.Update(ctx, a)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, a)).To(Succeed())
+			_, err = reconcileOnce(r, "pre-a")
+			Expect(err).NotTo(HaveOccurred())
+
+			// The zone survives (guard compared B against its live name), and B
+			// adopts it rather than creating a duplicate.
+			_, err = nbClient.DNSZones.GetZone(ctx, zoneID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = reconcileOnce(r, "pre-b")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(b), b)).To(Succeed())
+			Expect(b.Status.ZoneID).To(Equal(zoneID))
 		})
 	})
 

@@ -295,9 +295,11 @@ pin them. When you add a controller, hold it to the same list.
 
 - **Delete guards compare the recorded identity, never a mutable spec field.**
   A delete keyed on `Status.ZoneID` / `Status.ClusterAddress` / `Status.DomainID`
-  must decide "shared?" on that same key (spec fields may drift via renames).
-  Pinned by the `DNSZone sharing` and `ReverseProxyCluster` deletion specs in
-  `redesign_test.go`.
+  must decide "shared?" on that same key — and for survivors that haven't
+  adopted yet (no recorded id), against the **live NetBird object's**
+  name/domain resolved by that id, not the deleting CR's spec (which may have
+  been renamed after the id was recorded). Pinned by the `DNSZone sharing` and
+  `ReverseProxyCluster` deletion specs in `redesign_test.go`.
 - **Shared NetBird objects are deleted by the last CR standing.** Adoption
   (by name/domain/address) implies shared ownership; a deleting CR skips the
   NetBird delete while another live CR still uses the object.
