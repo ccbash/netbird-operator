@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
@@ -26,29 +25,12 @@ var ErrProxyClusterNotFound = errors.New("reverse-proxy cluster not found")
 func GetProxyClusterByAddress(ctx context.Context, nbClient *netbird.Client, address string) (api.ProxyCluster, error) {
 	cache := &cachesFor(nbClient).clusters
 	fetch := func() ([]api.ProxyCluster, error) { return nbClient.ReverseProxyClusters.List(ctx) }
-	find := func(items []api.ProxyCluster) (api.ProxyCluster, bool) {
-		i := slices.IndexFunc(items, func(c api.ProxyCluster) bool { return c.Address == address })
-		if i == -1 {
-			return api.ProxyCluster{}, false
-		}
-		return items[i], true
-	}
-
-	now := time.Now()
-	clusters, err := cache.list(now, fetch)
+	cluster, found, err := cache.lookup(time.Now(), fetch, func(c api.ProxyCluster) bool { return c.Address == address })
 	if err != nil {
 		return api.ProxyCluster{}, err
 	}
-	if c, ok := find(clusters); ok {
-		return c, nil
+	if !found {
+		return api.ProxyCluster{}, fmt.Errorf("%w: %s", ErrProxyClusterNotFound, address)
 	}
-	// Miss — refetch in case it was just created before reporting not-found.
-	clusters, err = cache.refresh(now, fetch)
-	if err != nil {
-		return api.ProxyCluster{}, err
-	}
-	if c, ok := find(clusters); ok {
-		return c, nil
-	}
-	return api.ProxyCluster{}, fmt.Errorf("%w: %s", ErrProxyClusterNotFound, address)
+	return cluster, nil
 }

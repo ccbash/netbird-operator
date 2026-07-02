@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
@@ -21,29 +20,12 @@ var ErrZoneNotFound = errors.New("dns zone not found")
 func GetDNSZoneByName(ctx context.Context, nbClient *netbird.Client, name string) (api.Zone, error) {
 	cache := &cachesFor(nbClient).zones
 	fetch := func() ([]api.Zone, error) { return nbClient.DNSZones.ListZones(ctx) }
-	find := func(items []api.Zone) (api.Zone, bool) {
-		i := slices.IndexFunc(items, func(z api.Zone) bool { return z.Name == name })
-		if i == -1 {
-			return api.Zone{}, false
-		}
-		return items[i], true
-	}
-
-	now := time.Now()
-	zones, err := cache.list(now, fetch)
+	zone, found, err := cache.lookup(time.Now(), fetch, func(z api.Zone) bool { return z.Name == name })
 	if err != nil {
 		return api.Zone{}, err
 	}
-	if z, ok := find(zones); ok {
-		return z, nil
+	if !found {
+		return api.Zone{}, fmt.Errorf("%w: %s", ErrZoneNotFound, name)
 	}
-	// Miss — refetch in case it was just created before reporting not-found.
-	zones, err = cache.refresh(now, fetch)
-	if err != nil {
-		return api.Zone{}, err
-	}
-	if z, ok := find(zones); ok {
-		return z, nil
-	}
-	return api.Zone{}, fmt.Errorf("%w: %s", ErrZoneNotFound, name)
+	return zone, nil
 }
