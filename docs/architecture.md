@@ -58,9 +58,10 @@ Two composite (non-mirror) CRDs sit beside them:
 
 - **`ReverseProxyCluster`** — deploys + enrolls a bring-your-own NetBird reverse
   proxy: token Secret, proxy Deployment (`:8443` single SNI/HTTP listener,
-  `ndots:1`), LB Service (80/443 → 8443, PreferDualStack), DNSZone + A record +
-  `*.domain` catch-all CNAME, the account cluster registration and the custom
-  domain (Domain → clusterAddress) in NetBird.
+  `ndots:1`), LB Service (80/443 → 8443, PreferDualStack), DNSZone + one A/AAAA
+  record per served LB IP family + `*.domain` catch-all CNAME, the account
+  cluster registration and the custom domain (Domain → clusterAddress) in
+  NetBird.
 - **`ReverseProxyClusterParameters`** — the proxy "flavor"
   (image/replicas/groups/private/serviceAnnotations/logLevel) a Gateway points
   at via `spec.infrastructure.parametersRef`.

@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -523,9 +524,9 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rpc), rpc)).To(Succeed())
 			Expect(rpc.Status.TokenID).NotTo(BeEmpty())
 
-			// Assign the LB IP (no cloud controller in envtest) and seed enrollment.
+			// Assign dual-stack LB IPs (no cloud controller in envtest) and seed enrollment.
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
-			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.50"}}
+			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.50"}, {IP: "2001:db8::50"}}
 			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
 			controls.AddProxyCluster("c1", "gate.ccbash.cloud")
 
@@ -537,6 +538,13 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(aRec.Spec.Type).To(Equal("A"))
 			Expect(aRec.Spec.Content).To(Equal("192.0.2.50"))
 			Expect(aRec.Spec.Name).To(Equal("gate.ccbash.cloud"))
+
+			// The IPv6 ingress gets its own AAAA record on the same name.
+			aaaaRec := &nbv1alpha1.DNSRecord{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name + "-aaaa", Namespace: ns}, aaaaRec)).To(Succeed())
+			Expect(aaaaRec.Spec.Type).To(Equal("AAAA"))
+			Expect(aaaaRec.Spec.Content).To(Equal("2001:db8::50"))
+			Expect(aaaaRec.Spec.Name).To(Equal("gate.ccbash.cloud"))
 
 			catch := &nbv1alpha1.DNSRecord{}
 			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name + "-catchall", Namespace: ns}, catch)).To(Succeed())
@@ -567,6 +575,17 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(domains).To(HaveLen(1))
 			Expect(domains[0].Domain).To(Equal("ccbash.cloud"))
+
+			// The LB drops its IPv6 (moved off dual-stack): the AAAA record is
+			// pruned so a stale address doesn't keep resolving.
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), svc)).To(Succeed())
+			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.50"}}
+			Expect(k8sClient.Status().Update(ctx, svc)).To(Succeed())
+			_, err = reconcileOnce(r, "gate")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name + "-a", Namespace: ns}, aRec)).To(Succeed())
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: name + "-aaaa", Namespace: ns}, &nbv1alpha1.DNSRecord{})
+			Expect(kerrors.IsNotFound(err)).To(BeTrue())
 		})
 
 		// readyRPC creates a ReverseProxyCluster and reconciles it through the LB

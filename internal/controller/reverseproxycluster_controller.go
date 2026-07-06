@@ -13,7 +13,9 @@ import (
 	"github.com/fluxcd/pkg/runtime/patch"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -119,8 +121,9 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// 4. Wait for the LoadBalancer IP, then publish the proxy A record + catch-all.
-	ip, ok := r.serviceIP(ctx, rpc)
+	// 4. Wait for the LoadBalancer IP, then publish the proxy address records
+	//    (one A/AAAA per served IP family) + catch-all.
+	addrs, ok := r.serviceAddresses(ctx, rpc)
 	if !ok {
 		// Without an address the proxy can't be serving — don't leave last-good
 		// connectivity values behind on the printcolumns.
@@ -128,8 +131,8 @@ func (r *ReverseProxyClusterReconciler) Reconcile(ctx context.Context, req ctrl.
 		rpc.Status.ConnectedProxies = 0
 		return r.notReady(ctx, sp, rpc, "waiting for the proxy LoadBalancer IP")
 	}
-	rpc.Status.LoadBalancerIP = ip
-	if err := r.applyRecords(ctx, rpc, ownerRef, zoneRef, ip); err != nil {
+	rpc.Status.LoadBalancerIP = addrs[0].address
+	if err := r.applyRecords(ctx, rpc, ownerRef, zoneRef, addrs); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -339,22 +342,42 @@ func (r *ReverseProxyClusterReconciler) ensureZone(ctx context.Context, rpc *nbv
 	return &nbv1alpha1.CrossNamespaceReference{Name: proxyResourceName(rpc), Namespace: rpc.Namespace}, nil
 }
 
-// applyRecords publishes the proxy's A record (clusterAddress -> LB IP) and a
-// catch-all CNAME (*.domain -> clusterAddress) so any service hostname resolves
-// to the proxy. NetBird verifies the A record before treating the proxy ready.
-func (r *ReverseProxyClusterReconciler) applyRecords(ctx context.Context, rpc *nbv1alpha1.ReverseProxyCluster, ownerRef *metav1ac.OwnerReferenceApplyConfiguration, zoneRef *nbv1alpha1.CrossNamespaceReference, ip string) error {
+// applyRecords publishes the proxy's address records (clusterAddress -> LB IP,
+// one A/AAAA record per IP family the LoadBalancer serves) and a catch-all CNAME
+// (*.domain -> clusterAddress) so any service hostname resolves to the proxy.
+// The record of a family the LoadBalancer stopped serving is deleted so a stale
+// address doesn't keep resolving. NetBird verifies the address record before
+// treating the proxy ready.
+func (r *ReverseProxyClusterReconciler) applyRecords(ctx context.Context, rpc *nbv1alpha1.ReverseProxyCluster, ownerRef *metav1ac.OwnerReferenceApplyConfiguration, zoneRef *nbv1alpha1.CrossNamespaceReference, addrs []familyAddress) error {
 	zoneRefAC := nbv1alpha1ac.CrossNamespaceReference().WithName(zoneRef.Name).WithNamespace(zoneRef.Namespace)
 
-	aRecord := nbv1alpha1ac.DNSRecord(proxyResourceName(rpc)+"-a", rpc.Namespace).
-		WithOwnerReferences(ownerRef).
-		WithSpec(nbv1alpha1ac.DNSRecordSpec().
-			WithZoneRef(zoneRefAC).
-			WithName(rpc.Spec.ClusterAddress).
-			WithType("A").
-			WithContent(ip).
-			WithTTL(int(dnsRecordTTL.Seconds())))
-	if err := r.Apply(ctx, aRecord, client.ForceOwnership); err != nil {
-		return err
+	published := map[api.DNSRecordType]bool{}
+	for _, fa := range addrs {
+		recordType, ok := dnsRecordTypeFor(fa.address)
+		if !ok || published[recordType] {
+			continue
+		}
+		published[recordType] = true
+		recordAC := nbv1alpha1ac.DNSRecord(proxyAddressRecordName(rpc, recordType), rpc.Namespace).
+			WithOwnerReferences(ownerRef).
+			WithSpec(nbv1alpha1ac.DNSRecordSpec().
+				WithZoneRef(zoneRefAC).
+				WithName(rpc.Spec.ClusterAddress).
+				WithType(string(recordType)).
+				WithContent(fa.address).
+				WithTTL(int(dnsRecordTTL.Seconds())))
+		if err := r.Apply(ctx, recordAC, client.ForceOwnership); err != nil {
+			return err
+		}
+	}
+	for _, recordType := range []api.DNSRecordType{api.DNSRecordTypeA, api.DNSRecordTypeAAAA} {
+		if published[recordType] {
+			continue
+		}
+		stale := &nbv1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Name: proxyAddressRecordName(rpc, recordType), Namespace: rpc.Namespace}}
+		if err := r.Delete(ctx, stale); err != nil && !kerrors.IsNotFound(err) {
+			return err
+		}
 	}
 
 	catchAll := nbv1alpha1ac.DNSRecord(proxyResourceName(rpc)+"-catchall", rpc.Namespace).
@@ -481,19 +504,23 @@ func (r *ReverseProxyClusterReconciler) applyService(ctx context.Context, rpc *n
 	return r.Apply(ctx, svcAC, client.ForceOwnership)
 }
 
-// serviceIP returns the proxy Service's first LoadBalancer ingress IP, or false
-// while none is assigned yet.
-func (r *ReverseProxyClusterReconciler) serviceIP(ctx context.Context, rpc *nbv1alpha1.ReverseProxyCluster) (string, bool) {
+// serviceAddresses returns the proxy Service's LoadBalancer ingress IPs, the
+// first of each IP family, or false while none is assigned yet.
+func (r *ReverseProxyClusterReconciler) serviceAddresses(ctx context.Context, rpc *nbv1alpha1.ReverseProxyCluster) ([]familyAddress, bool) {
 	svc := &corev1.Service{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: rpc.Namespace, Name: proxyResourceName(rpc)}, svc); err != nil {
-		return "", false
+		return nil, false
 	}
-	for _, ing := range svc.Status.LoadBalancer.Ingress {
-		if ing.IP != "" {
-			return ing.IP, true
+	var out []familyAddress
+	seen := map[corev1.IPFamily]bool{}
+	for _, fa := range lbIngressAddresses(svc) {
+		if seen[fa.family] {
+			continue
 		}
+		seen[fa.family] = true
+		out = append(out, fa)
 	}
-	return "", false
+	return out, len(out) > 0
 }
 
 func (r *ReverseProxyClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -510,6 +537,12 @@ func (r *ReverseProxyClusterReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 func proxyResourceName(rpc *nbv1alpha1.ReverseProxyCluster) string {
 	return "reverseproxycluster-" + rpc.Name
+}
+
+// proxyAddressRecordName is the deterministic name of the proxy's address
+// DNSRecord for one record type, e.g. "reverseproxycluster-gate-a" / "-aaaa".
+func proxyAddressRecordName(rpc *nbv1alpha1.ReverseProxyCluster, recordType api.DNSRecordType) string {
+	return proxyResourceName(rpc) + "-" + strings.ToLower(string(recordType))
 }
 
 func proxySelectorLabels(rpc *nbv1alpha1.ReverseProxyCluster) map[string]string {
