@@ -28,7 +28,9 @@ import (
 
 // NewReverseProxyServiceReconciler builds the reconciler for the
 // ReverseProxyService CRD. It reuses the generic mirror reconciler — its apply
-// closure targets each backend LoadBalancer Service's DNSRecord FQDN.
+// closure renders HTTP backends as cluster targets (dialed direct-upstream by
+// the proxy) and L4 backends as the advertised NetworkResource (dialed over
+// the mesh by the proxy's embedded peer).
 func NewReverseProxyServiceReconciler(c client.Client, nb *netbird.Client, rec record.EventRecorder) *MirrorReconciler[*nbv1alpha1.ReverseProxyService] {
 	return &MirrorReconciler[*nbv1alpha1.ReverseProxyService]{
 		Client:   c,
@@ -60,28 +62,53 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 	// rejects it elsewhere, so this gate only ever skips it for http/udp.
 	proxyProtocol := mode == api.ServiceRequestModeTcp || mode == api.ServiceRequestModeTls
 
+	// L4 (tcp/udp/tls) relays dial their backend through the proxy's embedded
+	// mesh peer — DirectUpstream is an HTTP-only transport branch, so an L4
+	// cluster target leaves the proxy with nothing dialable. NetBird resolves
+	// the paths[0] target only, so an L4 service is exactly one backend.
+	if !isHTTP && len(rps.Spec.Backends) > 1 {
+		return fmt.Errorf("mode %s supports exactly one backend (NetBird relays L4 connections to a single target)", mode)
+	}
+
 	targets := make([]api.ServiceTarget, 0, len(rps.Spec.Backends))
 	portLabel := "" // backend port name (or number) for the L4 per-port domain
-	for i, b := range rps.Spec.Backends {
-		host, port, name, err := resolveBackend(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
-		if err != nil {
-			return err
-		}
-		// L4 services have a single backend; label the per-port domain by its
-		// port name, falling back to the number.
-		if i == 0 {
+	for _, b := range rps.Spec.Backends {
+		if !isHTTP {
+			// The single L4 target references the backend's advertised
+			// NetworkResource by id: NetBird itself resolves it to the routed
+			// LoadBalancer IP, so the relay dials an IP literal over the mesh
+			// (no per-connection DNS lookup in the embedded netstack).
+			resourceID, port, name, err := resolveL4Backend(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
+			if err != nil {
+				return err
+			}
+			// Label the per-port domain by the backend port's name, falling
+			// back to the number.
 			if portLabel = name; portLabel == "" {
 				portLabel = strconv.Itoa(port)
 			}
+			target := api.ServiceTarget{
+				Enabled:    true,
+				Port:       port,
+				Protocol:   proto,
+				TargetType: api.ServiceTargetTargetTypeHost,
+				TargetId:   resourceID,
+			}
+			// Mirror the CRD's proxyProtocol verbatim so the translation is
+			// transparent: nil leaves the NetBird default, an explicit
+			// true/false is sent as-is.
+			if proxyProtocol && rps.Spec.ProxyProtocol != nil {
+				target.Options = &api.ServiceTargetOptions{ProxyProtocol: rps.Spec.ProxyProtocol}
+			}
+			targets = append(targets, target)
+			continue
+		}
+
+		host, port, _, err := resolveBackend(ctx, c, rps.Namespace, b.ServiceRef.Name, b.Port)
+		if err != nil {
+			return err
 		}
 		direct := true
-		opts := &api.ServiceTargetOptions{DirectUpstream: &direct}
-		// Mirror the CRD's proxyProtocol verbatim onto every target so the
-		// translation is transparent: nil leaves the NetBird default, an
-		// explicit true/false is sent as-is.
-		if proxyProtocol && rps.Spec.ProxyProtocol != nil {
-			opts.ProxyProtocol = rps.Spec.ProxyProtocol
-		}
 		target := api.ServiceTarget{
 			Enabled:    true,
 			Host:       &host,
@@ -91,10 +118,9 @@ func applyReverseProxyService(ctx context.Context, nb *netbird.Client, c client.
 			// A cluster target references the cluster's CNAME address (e.g.
 			// gate.example.com), not cluster.Id which is a single proxy node.
 			TargetId: cluster.Address,
-			Options:  opts,
+			Options:  &api.ServiceTargetOptions{DirectUpstream: &direct},
 		}
-		// Path is HTTP-only; L4 targets route by listen port, not URL path.
-		if isHTTP && b.Path != "" {
+		if b.Path != "" {
 			path := b.Path
 			target.Path = &path
 		}
@@ -193,14 +219,13 @@ func backendFQDN(ctx context.Context, c client.Client, namespace, svcName string
 	return records.Items[0].Spec.Name, nil
 }
 
-// resolveBackend resolves a backend Service to the host the proxy dials, the
-// port, and that port's name. The host depends on the Service type: a
-// type=LoadBalancer Service uses its advertised dualstack mesh FQDN (over the
-// NetBird overlay); any other Service (ClusterIP) is reached directly at its
-// in-cluster DNS name — the drop-in path for backends fronted by an in-cluster
-// proxy. want (backends[].port) wins; 0 falls back to the Service's first port,
-// so a multi-port backend defaults to the first port. The port name is "" when
-// the port is unnamed or want isn't a Service port.
+// resolveBackend resolves an HTTP backend Service to the host the proxy
+// dials, the port, and that port's name. The host depends on the Service
+// type: a type=LoadBalancer Service uses its advertised dualstack mesh FQDN
+// (over the NetBird overlay); any other Service (ClusterIP) is reached
+// directly at its in-cluster DNS name — the drop-in path for backends fronted
+// by an in-cluster proxy. The port name is "" when the port is unnamed or the
+// requested port isn't a Service port.
 func resolveBackend(ctx context.Context, c client.Client, namespace, svcName string, want int) (host string, port int, portName string, err error) {
 	svc := &corev1.Service{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc); err != nil {
@@ -213,16 +238,7 @@ func resolveBackend(ctx context.Context, c client.Client, namespace, svcName str
 		return "", 0, "", fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
 	}
 
-	p := svc.Spec.Ports[0]
-	if want != 0 {
-		p = corev1.ServicePort{Port: int32(want)} // unmatched explicit port: no name
-		for _, sp := range svc.Spec.Ports {
-			if int(sp.Port) == want {
-				p = sp
-				break
-			}
-		}
-	}
+	p := backendPort(svc, want)
 
 	if svc.Spec.Type == corev1.ServiceTypeLoadBalancer {
 		host, err = backendFQDN(ctx, c, namespace, svcName)
@@ -233,6 +249,78 @@ func resolveBackend(ctx context.Context, c client.Client, namespace, svcName str
 		host = fmt.Sprintf("%s.%s.svc.cluster.local", svcName, namespace)
 	}
 	return host, int(p.Port), p.Name, nil
+}
+
+// backendPort resolves the Service port a backend entry addresses: want
+// (backends[].port) wins; 0 falls back to the Service's first port. The
+// returned port carries no name when want isn't a declared Service port.
+func backendPort(svc *corev1.Service, want int) corev1.ServicePort {
+	p := svc.Spec.Ports[0]
+	if want != 0 {
+		p = corev1.ServicePort{Port: int32(want)} // unmatched explicit port: no name
+		for _, sp := range svc.Spec.Ports {
+			if int(sp.Port) == want {
+				p = sp
+				break
+			}
+		}
+	}
+	return p
+}
+
+// resolveL4Backend resolves an L4 (tcp/udp/tls) backend to the NetBird network
+// resource the proxy dials, plus the backend port and that port's name. L4
+// relays always run through the proxy's embedded mesh peer (there is no
+// direct-upstream branch below HTTP), so the backend must be an advertised
+// LoadBalancer Service: the mesh routes its LB IP (never a ClusterIP), and the
+// target references the per-family NetworkResource by id so NetBird resolves
+// it to that IP — the relay then dials an IP literal, skipping the embedded
+// netstack's DNS resolver (single upstream, hard 5s query timeout) on every
+// connection. IPv4 is preferred over IPv6 (every mesh peer has a v4 address;
+// v6 needs a dualstack mesh).
+func resolveL4Backend(ctx context.Context, c client.Client, namespace, svcName string, want int) (resourceID string, port int, portName string, err error) {
+	svc := &corev1.Service{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: svcName}, svc); err != nil {
+		if kerrors.IsNotFound(err) {
+			return "", 0, "", fmt.Errorf("%w: Service %s/%s not found", errDependencyNotReady, namespace, svcName)
+		}
+		return "", 0, "", err
+	}
+	if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+		return "", 0, "", fmt.Errorf("tcp/tls/udp modes require an advertised LoadBalancer backend: Service %s/%s is type %s (the proxy relays L4 connections over the NetBird mesh, which routes only LoadBalancer addresses)",
+			namespace, svcName, svc.Spec.Type)
+	}
+	if len(svc.Spec.Ports) == 0 {
+		return "", 0, "", fmt.Errorf("%w: Service %s/%s has no ports", errDependencyNotReady, namespace, svcName)
+	}
+	p := backendPort(svc, want)
+
+	var resources nbv1alpha1.NetworkResourceList
+	if err := c.List(ctx, &resources, client.InNamespace(namespace), client.MatchingLabels{lbServiceLabel: svcName}); err != nil {
+		return "", 0, "", err
+	}
+	if len(resources.Items) == 0 {
+		return "", 0, "", fmt.Errorf("%w: Service %s/%s not advertised (no NetworkResource)", errDependencyNotReady, namespace, svcName)
+	}
+	pick := preferL4Resource(resources.Items)
+	if pick.Status.ResourceID == "" {
+		return "", 0, "", fmt.Errorf("%w: NetworkResource %s/%s not ready (no NetBird resource id)", errDependencyNotReady, namespace, pick.Name)
+	}
+	return pick.Status.ResourceID, int(p.Port), p.Name, nil
+}
+
+// preferL4Resource picks the advertised NetworkResource an L4 target
+// references: IPv4 before IPv6, name as the tiebreaker, so an unchanged spec
+// keeps rendering the identical target.
+func preferL4Resource(items []nbv1alpha1.NetworkResource) *nbv1alpha1.NetworkResource {
+	sort.Slice(items, func(i, j int) bool {
+		fi, fj := ipFamilyOf(items[i].Spec.Address), ipFamilyOf(items[j].Spec.Address)
+		if fi != fj {
+			return fi == corev1.IPv4Protocol
+		}
+		return items[i].Name < items[j].Name
+	})
+	return &items[0]
 }
 
 // sortServiceTargets orders targets deterministically so an unchanged reconcile

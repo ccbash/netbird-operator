@@ -14,10 +14,18 @@ import (
 // ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
 // is admin-authored — creating one is the explicit decision to expose Services
 // through the NetBird reverse proxy, internally or externally. It mirrors the
-// NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
-// targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
+// NetBird reverse-proxy service API (POST /api/reverse-proxies/services). HTTP
+// backends are targeted at the DNSRecord FQDN (LoadBalancer) or in-cluster DNS
+// name (ClusterIP) of each backend Service; L4 backends at the NetworkResource
+// advertised for the backend LoadBalancer Service.
 type ReverseProxyServiceSpecApplyConfiguration struct {
-	// Backends are the LoadBalancer Services this service proxies to, by path.
+	// Backends are the Services this service proxies to. For mode=http each
+	// backend maps by path; a LoadBalancer backend is dialed at its advertised
+	// mesh FQDN, any other type at its in-cluster DNS name. tcp/tls/udp modes
+	// take exactly one backend, and it must be an advertised LoadBalancer
+	// Service: the proxy relays L4 connections over the NetBird mesh, which
+	// routes only LoadBalancer addresses — the target is the backend's
+	// advertised NetworkResource (IPv4 preferred over IPv6).
 	Backends []ReverseProxyBackendApplyConfiguration `json:"backends,omitempty"`
 	// Mode selects the proxy mode. "http" (default) is an L7 reverse proxy;
 	// "tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports

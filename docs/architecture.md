@@ -115,20 +115,31 @@ spec:
       # port: 80                 # optional; defaults to the Service's first port
 ```
 
-Backend resolution (`resolveBackend`) depends on the Service type:
+Backend resolution depends on the mode, because the proxy dials HTTP and L4
+backends over different transports:
 
-- **`type=LoadBalancer`** → the proxy dials the Service's advertised dualstack
-  mesh FQDN (its operator-published `DNSRecord`), over the overlay; not-yet
-  advertised is a not-ready dependency, not an error.
-- **any other type (ClusterIP)** → the proxy dials
-  `<svc>.<ns>.svc.cluster.local` directly — it runs in-cluster, so no routable
-  IP per app is needed. This is the Gateway/HTTPRoute default path.
+- **mode=http** (`resolveBackend`) — targets are `cluster` type with
+  `DirectUpstream: true`, referencing the cluster's **CNAME address** (never a
+  proxy-node id); the proxy dials the host through its own network stack. A
+  `type=LoadBalancer` backend is dialed at its advertised dualstack mesh FQDN
+  (its operator-published `DNSRecord`); any other type (ClusterIP) at
+  `<svc>.<ns>.svc.cluster.local` — the drop-in path for an in-cluster proxy,
+  which needs no routable IP per app. This is the Gateway/HTTPRoute default.
+- **mode=tcp/tls/udp** (`resolveL4Backend`) — the NetBird proxy relays L4
+  connections through its **embedded mesh peer** (direct upstream is an
+  HTTP-only transport branch), so the backend must be an advertised
+  `type=LoadBalancer` Service and the single target references its advertised
+  **`NetworkResource` by id** (IPv4 preferred over IPv6). NetBird resolves the
+  reference to the routed LB IP, so the relay dials an IP literal — no
+  per-connection DNS in the embedded netstack (whose resolver has a single
+  upstream and a hard 5s query timeout). A ClusterIP backend or a second
+  backend is rejected at admission and in the reconciler; not-yet advertised
+  is a not-ready dependency, not an error.
 
-Targets always carry `DirectUpstream: true` and reference the cluster's **CNAME
-address** (never a proxy-node id). NetBird enforces **one service per domain**;
-multi-port L4 under one hostname is solved by synthesizing per-port sibling
-domains `<first-label>-<portName>.<parent>` (e.g. `mail-smtp.example.com`) —
-the parent must be the registered custom domain.
+NetBird enforces **one service per domain**; multi-port L4 under one hostname
+is solved by synthesizing per-port sibling domains
+`<first-label>-<portName>.<parent>` (e.g. `mail-smtp.example.com`) — the
+parent must be the registered custom domain.
 
 ## Layer 2a — LoadBalancer reachability
 

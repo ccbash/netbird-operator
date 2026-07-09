@@ -276,14 +276,15 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 
 		It("exposes an L4 (tcp) service on a fixed listen port", func() {
 			readyNetwork()
-			// Backend with a named port (smtp) so the per-port domain reads mail-smtp.
+			// Dualstack backend with a named port (smtp) so the per-port domain
+			// reads mail-smtp and the target family preference is observable.
 			backend := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: ns},
 				Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, Ports: []corev1.ServicePort{{Name: "smtp", Port: 25}}},
 			}
 			Expect(k8sClient.Create(ctx, backend)).To(Succeed())
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(backend), backend)).To(Succeed())
-			backend.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.20"}}
+			backend.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.20"}, {IP: "2001:db8::20"}}
 			Expect(k8sClient.Status().Update(ctx, backend)).To(Succeed())
 			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain}, "mail")
 			Expect(err).NotTo(HaveOccurred())
@@ -304,10 +305,30 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
-			_, err = reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), "mail-smtp")
+
+			// The advertised NetworkResource exists but has no NetBird resource
+			// id yet — a not-ready dependency (requeue), not an error.
+			rpsRec := NewReverseProxyServiceReconciler(k8sClient, nbClient, nil)
+			_, err = reconcileOnce(rpsRec, "mail-smtp")
+			Expect(err).NotTo(HaveOccurred())
+			services, err := nbClient.ReverseProxyServices.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(services).To(BeEmpty())
+
+			// Mirror both family resources so they get NetBird resource ids.
+			nrRec := NewNetworkResourceReconciler(k8sClient, nbClient, nil)
+			for _, name := range []string{"mail-ipv4", "mail-ipv6"} {
+				_, err = reconcileOnce(nrRec, name)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			v4 := &nbv1alpha1.NetworkResource{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "mail-ipv4", Namespace: ns}, v4)).To(Succeed())
+			Expect(v4.Status.ResourceID).NotTo(BeEmpty())
+
+			_, err = reconcileOnce(rpsRec, "mail-smtp")
 			Expect(err).NotTo(HaveOccurred())
 
-			services, err := nbClient.ReverseProxyServices.List(ctx)
+			services, err = nbClient.ReverseProxyServices.List(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(services).To(HaveLen(1))
 			svc := services[0]
@@ -323,15 +344,58 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			Expect(target.Protocol).To(Equal(api.ServiceTargetProtocolTcp))
 			Expect(target.Port).To(Equal(25))
 			Expect(target.Path).To(BeNil()) // path is HTTP-only
+			// The L4 relay dials through the proxy's embedded mesh peer, so the
+			// target references the advertised NetworkResource (v4 preferred) —
+			// NetBird resolves it to the routed LB IP; no host, no cluster
+			// target, no direct upstream.
+			Expect(target.TargetType).To(Equal(api.ServiceTargetTargetTypeHost))
+			Expect(target.TargetId).To(Equal(v4.Status.ResourceID))
+			Expect(target.Host).To(BeNil())
+			Expect(target.Options).NotTo(BeNil())
+			Expect(target.Options.DirectUpstream).To(BeNil())
 			// proxyProtocol is mirrored onto the target so the backend sees the
 			// real client IP.
-			Expect(target.Options).NotTo(BeNil())
 			Expect(target.Options.ProxyProtocol).NotTo(BeNil())
 			Expect(*target.Options.ProxyProtocol).To(BeTrue())
 
 			// The synthesized domain is surfaced in status for transparency.
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rps), rps)).To(Succeed())
 			Expect(rps.Status.ServiceDomain).To(Equal("mail-smtp.example.com"))
+		})
+
+		It("rejects an L4 service whose backend is not a LoadBalancer", func() {
+			controls.AddProxyCluster("cluster-1", "gate.test")
+
+			backend := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "mail", Namespace: ns},
+				Spec: corev1.ServiceSpec{
+					Type:  corev1.ServiceTypeClusterIP,
+					Ports: []corev1.ServicePort{{Name: "smtp", Port: 25}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, backend)).To(Succeed())
+
+			listen := 25
+			rps := &nbv1alpha1.ReverseProxyService{
+				ObjectMeta: metav1.ObjectMeta{Name: "mail-smtp", Namespace: ns},
+				Spec: nbv1alpha1.ReverseProxyServiceSpec{
+					Backends:     []nbv1alpha1.ReverseProxyBackend{{ServiceRef: corev1.LocalObjectReference{Name: "mail"}, Port: 25}},
+					ProxyCluster: "gate.test",
+					Domain:       "mail.example.com",
+					Mode:         nbv1alpha1.ReverseProxyModeTCP,
+					ListenPort:   &listen,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rps)).To(Succeed())
+
+			// The mesh routes only LoadBalancer addresses, and the L4 relay has
+			// no direct-upstream branch — a ClusterIP backend fails closed.
+			_, err := reconcileOnce(NewReverseProxyServiceReconciler(k8sClient, nbClient, nil), "mail-smtp")
+			Expect(err).To(MatchError(ContainSubstring("LoadBalancer backend")))
+
+			services, err := nbClient.ReverseProxyServices.List(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(services).To(BeEmpty())
 		})
 
 		It("publishes several L4 ports under one host as distinct per-port domains", func() {
@@ -346,6 +410,10 @@ var _ = Describe("LoadBalancer-IP translation", func() {
 			backend.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "192.0.2.20"}}
 			Expect(k8sClient.Status().Update(ctx, backend)).To(Succeed())
 			_, err := reconcileOnce(&LoadBalancerReconciler{Client: k8sClient, Namespace: ns, DefaultAdvertise: true, Network: ns, DNSZone: lbZoneDomain}, "mail")
+			Expect(err).NotTo(HaveOccurred())
+			// Mirror the advertised NetworkResource so the L4 targets can
+			// reference its NetBird resource id.
+			_, err = reconcileOnce(NewNetworkResourceReconciler(k8sClient, nbClient, nil), "mail-ipv4")
 			Expect(err).NotTo(HaveOccurred())
 
 			controls.AddProxyCluster("cluster-1", "gate.test")

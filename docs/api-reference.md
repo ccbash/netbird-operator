@@ -793,8 +793,10 @@ decision.
 ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
 is admin-authored — creating one is the explicit decision to expose Services
 through the NetBird reverse proxy, internally or externally. It mirrors the
-NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
-targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
+NetBird reverse-proxy service API (POST /api/reverse-proxies/services). HTTP
+backends are targeted at the DNSRecord FQDN (LoadBalancer) or in-cluster DNS
+name (ClusterIP) of each backend Service; L4 backends at the NetworkResource
+advertised for the backend LoadBalancer Service.
 
 
 
@@ -803,7 +805,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `backends` _[ReverseProxyBackend](#reverseproxybackend) array_ | Backends are the LoadBalancer Services this service proxies to, by path. |  | MaxItems: 64 <br />MinItems: 1 <br /> |
+| `backends` _[ReverseProxyBackend](#reverseproxybackend) array_ | Backends are the Services this service proxies to. For mode=http each<br />backend maps by path; a LoadBalancer backend is dialed at its advertised<br />mesh FQDN, any other type at its in-cluster DNS name. tcp/tls/udp modes<br />take exactly one backend, and it must be an advertised LoadBalancer<br />Service: the proxy relays L4 connections over the NetBird mesh, which<br />routes only LoadBalancer addresses — the target is the backend's<br />advertised NetworkResource (IPv4 preferred over IPv6). |  | MaxItems: 64 <br />MinItems: 1 <br /> |
 | `mode` _[ReverseProxyMode](#reverseproxymode)_ | Mode selects the proxy mode. "http" (default) is an L7 reverse proxy;<br />"tcp"/"tls"/"udp" are L4 passthrough on ListenPort. Expose several L4 ports<br />under one hostname with one CR per port (same Domain, distinct ListenPort). | http | Enum: [http tcp tls udp] <br />Optional: \{\} <br /> |
 | `listenPort` _integer_ | ListenPort is the public port the proxy listens on. Required for L4 modes<br />(tcp/tls/udp) — it both fixes the well-known port (e.g. 25/465/993 for<br />mail) and disambiguates the per-port service domain. Ignored for mode=http. |  | Maximum: 65535 <br />Minimum: 0 <br />Optional: \{\} <br /> |
 | `proxyProtocol` _boolean_ | ProxyProtocol, when true, makes the proxy prepend a PROXY protocol v2<br />header to each backend connection so the backend sees the real client IP<br />and port instead of the proxy's. Applies to tcp/tls modes only (the<br />NetBird API rejects it elsewhere; HTTP conveys the client IP via<br />X-Forwarded-For). Required for mail backends that enforce SPF/DNSBL,<br />greylist, or log the client address — the backend must be configured to<br />accept PROXY protocol on the listening port. |  | Optional: \{\} <br /> |
