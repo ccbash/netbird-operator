@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	NetbirdClientImage = "ghcr.io/netbirdio/netbird:0.74.2@sha256:f2feb70b5978b0773ea64ec3fb5061ab894cc1720264dfc5bf187cb336bfa9fd"
+	NetbirdClientImage = "ghcr.io/netbirdio/netbird:0.74.4@sha256:81c69fc4a9b6ef1fd3833f4a2e4aa65dafcf90b5ee1fd95b11486cafb4aba313"
 	KubeApiProxyImage  = "ghcr.io/netbirdio/netbird-kubeapi-proxy:v0.0.4@sha256:bffa4f093abc19b4934ae37657bac76fa3b390cbd39aadac987634215eb750f5"
 	// ReverseProxyImage is the NetBird bring-your-own reverse-proxy image the
 	// ReverseProxyCluster controller deploys. Pinned to :latest for now — pin a
