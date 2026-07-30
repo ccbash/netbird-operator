@@ -90,15 +90,24 @@ type ReverseProxyBackend struct {
 // ReverseProxyServiceSpec defines the desired state of ReverseProxyService. It
 // is admin-authored — creating one is the explicit decision to expose Services
 // through the NetBird reverse proxy, internally or externally. It mirrors the
-// NetBird reverse-proxy service API (POST /api/reverse-proxies/services),
-// targeting the DNSRecord FQDN that belongs to each backend LoadBalancer Service.
+// NetBird reverse-proxy service API (POST /api/reverse-proxies/services). HTTP
+// backends are targeted at the DNSRecord FQDN (LoadBalancer) or in-cluster DNS
+// name (ClusterIP) of each backend Service; L4 backends at the NetworkResource
+// advertised for the backend LoadBalancer Service.
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || (has(self.accessGroups) && self.accessGroups.size() > 0)",message="accessGroups is required when private is true"
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !self.private || !has(self.mode) || self.mode == 'http'",message="private requires mode http (the NetBird API only supports the auto-ACL on HTTP services)"
 // +kubebuilder:validation:XValidation:rule="!has(self.listenPort) || (has(self.mode) && self.mode != 'http')",message="listenPort only applies to L4 modes (tcp/tls/udp)"
 // +kubebuilder:validation:XValidation:rule="!has(self.mode) || self.mode == 'http' || (has(self.listenPort) && self.listenPort > 0)",message="tcp/tls/udp modes require a non-zero listenPort"
 // +kubebuilder:validation:XValidation:rule="!has(self.proxyProtocol) || !self.proxyProtocol || (has(self.mode) && (self.mode == 'tcp' || self.mode == 'tls'))",message="proxyProtocol (PROXY protocol v2) only applies to tcp/tls modes"
+// +kubebuilder:validation:XValidation:rule="!has(self.mode) || self.mode == 'http' || self.backends.size() == 1",message="tcp/tls/udp modes support exactly one backend (NetBird relays L4 connections to a single target)"
 type ReverseProxyServiceSpec struct {
-	// Backends are the LoadBalancer Services this service proxies to, by path.
+	// Backends are the Services this service proxies to. For mode=http each
+	// backend maps by path; a LoadBalancer backend is dialed at its advertised
+	// mesh FQDN, any other type at its in-cluster DNS name. tcp/tls/udp modes
+	// take exactly one backend, and it must be an advertised LoadBalancer
+	// Service: the proxy relays L4 connections over the NetBird mesh, which
+	// routes only LoadBalancer addresses — the target is the backend's
+	// advertised NetworkResource (IPv4 preferred over IPv6).
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	Backends []ReverseProxyBackend `json:"backends"`

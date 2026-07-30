@@ -53,9 +53,11 @@ kubectl apply -f ./examples/expose/nginx.yaml
   operator's `--default-resource-groups`), then write a NetBird policy granting
   the consuming peers access to that group. Nothing is published through the
   proxy until you also author a `ReverseProxyService`.
-* `ReverseProxyService` targets each backend Service's **dualstack DNS name**
-  (`<svc>-<ns>.<zone>`), so IPv4/IPv6 is transparent. `private: true` makes the
-  exposure NetBird-only instead of public.
+* An HTTP `ReverseProxyService` targets each backend Service's **dualstack DNS
+  name** (`<svc>-<ns>.<zone>`), so IPv4/IPv6 is transparent; an L4 (`tcp`/
+  `tls`/`udp`) one targets the backend's advertised **NetworkResource** (its
+  routed LB IP, IPv4 preferred). `private: true` makes an HTTP exposure
+  NetBird-only instead of public.
 
 For **non-HTTP / raw-TCP** backends — mail, databases, anything that isn't L7
 HTTP — use an L4 (`tcp`/`tls`/`udp`) `ReverseProxyService` instead; see the
