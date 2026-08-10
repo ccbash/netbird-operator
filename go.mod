@@ -8,7 +8,7 @@ require (
 	github.com/fluxcd/pkg/runtime v0.111.0
 	github.com/go-logr/logr v1.4.4
 	github.com/go-openapi/testify/v2 v2.6.0
-	github.com/netbirdio/netbird v0.76.0
+	github.com/netbirdio/netbird v0.76.1
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
 	go.uber.org/zap v1.28.0
