@@ -6,6 +6,11 @@ on:
   push:
     branches:
       - '**'
+      # Dependency bumps are never deployed from their own branch — they land on
+      # main first — so skip the multi-arch image + per-branch dev chart for
+      # them (go.yaml still lints/tests the PR). Use workflow_dispatch if one
+      # ever needs a real build.
+      - '!dependabot/**'
     tags-ignore:
       - '**'
   workflow_dispatch:
