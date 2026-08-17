@@ -365,8 +365,8 @@ github.com/netbirdio/dex v0.244.1-0.20260512110716-8d70ad8647c1 h1:4TaYr9O4xX0D2
 github.com/netbirdio/dex v0.244.1-0.20260512110716-8d70ad8647c1/go.mod h1:IHH+H8vK2GfqtIt5u/5OdPh18yk0oDHuj2vz5+Goetg=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20260416123949-2355d972be42 h1:F3zS5fT9xzD1OFLfcdAE+3FfyiwjGukF1hvj0jErgs8=
 github.com/netbirdio/management-integrations/integrations v0.0.0-20260416123949-2355d972be42/go.mod h1:n47r67ZSPgwSmT/Z1o48JjZQW9YJ6m/6Bd/uAXkL3Pg=
-github.com/netbirdio/netbird v0.76.0 h1:SE5MLHm9txJtEEEZHEQWZAzl1EroWyYTj+0LBxuK3Gk=
-github.com/netbirdio/netbird v0.76.0/go.mod h1:v1hGAJhN/jMM6GgsnrwWHGpsYnxdu4SipVJeL3OVNfk=
+github.com/netbirdio/netbird v0.77.0 h1:FsZeT7shLazmyF9wjDt/4+HoBdZdfdVluD7eDDFRAdE=
+github.com/netbirdio/netbird v0.77.0/go.mod h1:LlTSuwk0F94rpMUt936KvMq6o3glHYOevyVqxqKxBfA=
 github.com/nxadm/tail v1.4.11 h1:8feyoE3OzPrcshW5/MJ4sGESc5cqmGkGCWlco4l0bqY=
 github.com/nxadm/tail v1.4.11/go.mod h1:OTaG3NK980DZzxbRq6lEuzgU+mug70nY11sMd4JXXHc=
 github.com/oapi-codegen/runtime v1.1.2 h1:P2+CubHq8fO4Q6fV1tqDBZHCwpVpvPg7oKiYzQgXIyI=
