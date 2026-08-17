@@ -5,9 +5,9 @@ go 1.26.0
 toolchain go1.26.3
 
 require (
-	github.com/go-openapi/testify/v2 v2.6.0
-	github.com/moby/moby/client v0.5.0
-	helm.sh/helm/v4 v4.2.3
+	github.com/go-openapi/testify/v2 v2.6.1
+	github.com/moby/moby/client v0.5.1
+	helm.sh/helm/v4 v4.2.4
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 	k8s.io/cli-runtime v0.36.3
@@ -111,9 +111,9 @@ require (
 	github.com/xlab/treeprint v1.2.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
-	go.opentelemetry.io/otel v1.43.0 // indirect
-	go.opentelemetry.io/otel/metric v1.43.0 // indirect
-	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	go.opentelemetry.io/otel v1.44.0 // indirect
+	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
