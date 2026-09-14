@@ -9,7 +9,7 @@ require (
 	github.com/go-logr/logr v1.4.4
 	github.com/go-openapi/testify/v2 v2.7.0
 	github.com/netbirdio/netbird v0.77.0
-	github.com/onsi/ginkgo/v2 v2.32.1
+	github.com/onsi/ginkgo/v2 v2.32.2
 	github.com/onsi/gomega v1.43.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/mod v0.40.0
