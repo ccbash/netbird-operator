@@ -84,10 +84,10 @@ and patch releases cut without pulling in new features.
 CI runs on self-hosted [Forgejo Actions](https://docs.codeberg.org/ci/actions/)
 (pipelines in [`.forgejo/workflows`](.forgejo/workflows)). Image builds use
 [`ko`](https://ko.build) — it cross-compiles and pushes the multi-arch manifest
-directly, so no container daemon or privileged runner is required. The `e2e`
-job still needs a runner that permits privileged job containers (kind creates
-containers), and is non-blocking until then. Publishing needs these repository
-secrets:
+directly, so no container daemon or privileged runner is required. The `e2e` suite needs a
+runner that permits privileged job containers (kind creates containers), so it
+lives in [`.forgejo/workflows/e2e.yaml`](.forgejo/workflows/e2e.yaml) and is run
+manually. Publishing needs these repository secrets:
 
 - `REGISTRY_USERNAME` — Codeberg user the token belongs to.
 - `REGISTRY_TOKEN` — Codeberg access token with the `write:package` scope.
