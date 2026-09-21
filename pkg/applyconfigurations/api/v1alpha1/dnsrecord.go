@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -16,7 +19,7 @@ import (
 // DNSRecord is the Schema for the dnsrecords API. It is a thin mirror of a
 // single NetBird DNS record.
 type DNSRecordApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *DNSRecordSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *DNSRecordStatusApplyConfiguration `json:"status,omitempty"`
@@ -31,6 +34,47 @@ func DNSRecord(name, namespace string) *DNSRecordApplyConfiguration {
 	b.WithKind("DNSRecord")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractDNSRecordFrom extracts the applied configuration owned by fieldManager from
+// dNSRecord for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// dNSRecord must be a unmodified DNSRecord API object that was retrieved from the Kubernetes API.
+// ExtractDNSRecordFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractDNSRecordFrom(dNSRecord *apiv1alpha1.DNSRecord, fieldManager string, subresource string) (*DNSRecordApplyConfiguration, error) {
+	b := &DNSRecordApplyConfiguration{}
+	err := managedfields.ExtractInto(dNSRecord, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSRecord"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(dNSRecord.Name)
+	b.WithNamespace(dNSRecord.Namespace)
+
+	b.WithKind("DNSRecord")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractDNSRecord extracts the applied configuration owned by fieldManager from
+// dNSRecord. If no managedFields are found in dNSRecord for fieldManager, a
+// DNSRecordApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// dNSRecord must be a unmodified DNSRecord API object that was retrieved from the Kubernetes API.
+// ExtractDNSRecord provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractDNSRecord(dNSRecord *apiv1alpha1.DNSRecord, fieldManager string) (*DNSRecordApplyConfiguration, error) {
+	return ExtractDNSRecordFrom(dNSRecord, fieldManager, "")
+}
+
+// ExtractDNSRecordStatus extracts the applied configuration owned by fieldManager from
+// dNSRecord for the status subresource.
+func ExtractDNSRecordStatus(dNSRecord *apiv1alpha1.DNSRecord, fieldManager string) (*DNSRecordApplyConfiguration, error) {
+	return ExtractDNSRecordFrom(dNSRecord, fieldManager, "status")
 }
 
 func (b DNSRecordApplyConfiguration) IsApplyConfiguration() {}

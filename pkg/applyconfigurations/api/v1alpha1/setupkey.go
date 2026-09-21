@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -15,7 +18,7 @@ import (
 //
 // SetupKey is the Schema for the setupkeys API.
 type SetupKeyApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *SetupKeySpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *SetupKeyStatusApplyConfiguration `json:"status,omitempty"`
@@ -30,6 +33,47 @@ func SetupKey(name, namespace string) *SetupKeyApplyConfiguration {
 	b.WithKind("SetupKey")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractSetupKeyFrom extracts the applied configuration owned by fieldManager from
+// setupKey for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// setupKey must be a unmodified SetupKey API object that was retrieved from the Kubernetes API.
+// ExtractSetupKeyFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractSetupKeyFrom(setupKey *apiv1alpha1.SetupKey, fieldManager string, subresource string) (*SetupKeyApplyConfiguration, error) {
+	b := &SetupKeyApplyConfiguration{}
+	err := managedfields.ExtractInto(setupKey, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.SetupKey"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(setupKey.Name)
+	b.WithNamespace(setupKey.Namespace)
+
+	b.WithKind("SetupKey")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractSetupKey extracts the applied configuration owned by fieldManager from
+// setupKey. If no managedFields are found in setupKey for fieldManager, a
+// SetupKeyApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// setupKey must be a unmodified SetupKey API object that was retrieved from the Kubernetes API.
+// ExtractSetupKey provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractSetupKey(setupKey *apiv1alpha1.SetupKey, fieldManager string) (*SetupKeyApplyConfiguration, error) {
+	return ExtractSetupKeyFrom(setupKey, fieldManager, "")
+}
+
+// ExtractSetupKeyStatus extracts the applied configuration owned by fieldManager from
+// setupKey for the status subresource.
+func ExtractSetupKeyStatus(setupKey *apiv1alpha1.SetupKey, fieldManager string) (*SetupKeyApplyConfiguration, error) {
+	return ExtractSetupKeyFrom(setupKey, fieldManager, "status")
 }
 
 func (b SetupKeyApplyConfiguration) IsApplyConfiguration() {}

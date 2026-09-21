@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -16,7 +19,7 @@ import (
 // NetworkResource is the Schema for the networkresources API. It is a thin
 // mirror of a NetBird network resource (one address).
 type NetworkResourceApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *NetworkResourceSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *NetworkResourceStatusApplyConfiguration `json:"status,omitempty"`
@@ -31,6 +34,47 @@ func NetworkResource(name, namespace string) *NetworkResourceApplyConfiguration 
 	b.WithKind("NetworkResource")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractNetworkResourceFrom extracts the applied configuration owned by fieldManager from
+// networkResource for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// networkResource must be a unmodified NetworkResource API object that was retrieved from the Kubernetes API.
+// ExtractNetworkResourceFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractNetworkResourceFrom(networkResource *apiv1alpha1.NetworkResource, fieldManager string, subresource string) (*NetworkResourceApplyConfiguration, error) {
+	b := &NetworkResourceApplyConfiguration{}
+	err := managedfields.ExtractInto(networkResource, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkResource"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(networkResource.Name)
+	b.WithNamespace(networkResource.Namespace)
+
+	b.WithKind("NetworkResource")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractNetworkResource extracts the applied configuration owned by fieldManager from
+// networkResource. If no managedFields are found in networkResource for fieldManager, a
+// NetworkResourceApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// networkResource must be a unmodified NetworkResource API object that was retrieved from the Kubernetes API.
+// ExtractNetworkResource provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractNetworkResource(networkResource *apiv1alpha1.NetworkResource, fieldManager string) (*NetworkResourceApplyConfiguration, error) {
+	return ExtractNetworkResourceFrom(networkResource, fieldManager, "")
+}
+
+// ExtractNetworkResourceStatus extracts the applied configuration owned by fieldManager from
+// networkResource for the status subresource.
+func ExtractNetworkResourceStatus(networkResource *apiv1alpha1.NetworkResource, fieldManager string) (*NetworkResourceApplyConfiguration, error) {
+	return ExtractNetworkResourceFrom(networkResource, fieldManager, "status")
 }
 
 func (b NetworkResourceApplyConfiguration) IsApplyConfiguration() {}

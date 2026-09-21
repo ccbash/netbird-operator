@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -17,7 +20,7 @@ import (
 // reverse proxy, internally or externally. It is the admin's expose-or-not
 // decision.
 type ReverseProxyServiceApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *ReverseProxyServiceSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *ReverseProxyServiceStatusApplyConfiguration `json:"status,omitempty"`
@@ -32,6 +35,47 @@ func ReverseProxyService(name, namespace string) *ReverseProxyServiceApplyConfig
 	b.WithKind("ReverseProxyService")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractReverseProxyServiceFrom extracts the applied configuration owned by fieldManager from
+// reverseProxyService for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// reverseProxyService must be a unmodified ReverseProxyService API object that was retrieved from the Kubernetes API.
+// ExtractReverseProxyServiceFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractReverseProxyServiceFrom(reverseProxyService *apiv1alpha1.ReverseProxyService, fieldManager string, subresource string) (*ReverseProxyServiceApplyConfiguration, error) {
+	b := &ReverseProxyServiceApplyConfiguration{}
+	err := managedfields.ExtractInto(reverseProxyService, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyService"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(reverseProxyService.Name)
+	b.WithNamespace(reverseProxyService.Namespace)
+
+	b.WithKind("ReverseProxyService")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractReverseProxyService extracts the applied configuration owned by fieldManager from
+// reverseProxyService. If no managedFields are found in reverseProxyService for fieldManager, a
+// ReverseProxyServiceApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// reverseProxyService must be a unmodified ReverseProxyService API object that was retrieved from the Kubernetes API.
+// ExtractReverseProxyService provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractReverseProxyService(reverseProxyService *apiv1alpha1.ReverseProxyService, fieldManager string) (*ReverseProxyServiceApplyConfiguration, error) {
+	return ExtractReverseProxyServiceFrom(reverseProxyService, fieldManager, "")
+}
+
+// ExtractReverseProxyServiceStatus extracts the applied configuration owned by fieldManager from
+// reverseProxyService for the status subresource.
+func ExtractReverseProxyServiceStatus(reverseProxyService *apiv1alpha1.ReverseProxyService, fieldManager string) (*ReverseProxyServiceApplyConfiguration, error) {
+	return ExtractReverseProxyServiceFrom(reverseProxyService, fieldManager, "status")
 }
 
 func (b ReverseProxyServiceApplyConfiguration) IsApplyConfiguration() {}

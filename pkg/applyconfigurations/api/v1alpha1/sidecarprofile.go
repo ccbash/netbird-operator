@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -15,7 +18,7 @@ import (
 //
 // SidecarProfile is the Schema for the sidecarprofiles API.
 type SidecarProfileApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *SidecarProfileSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *SidecarProfileStatusApplyConfiguration `json:"status,omitempty"`
@@ -30,6 +33,47 @@ func SidecarProfile(name, namespace string) *SidecarProfileApplyConfiguration {
 	b.WithKind("SidecarProfile")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractSidecarProfileFrom extracts the applied configuration owned by fieldManager from
+// sidecarProfile for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// sidecarProfile must be a unmodified SidecarProfile API object that was retrieved from the Kubernetes API.
+// ExtractSidecarProfileFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractSidecarProfileFrom(sidecarProfile *apiv1alpha1.SidecarProfile, fieldManager string, subresource string) (*SidecarProfileApplyConfiguration, error) {
+	b := &SidecarProfileApplyConfiguration{}
+	err := managedfields.ExtractInto(sidecarProfile, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.SidecarProfile"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(sidecarProfile.Name)
+	b.WithNamespace(sidecarProfile.Namespace)
+
+	b.WithKind("SidecarProfile")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractSidecarProfile extracts the applied configuration owned by fieldManager from
+// sidecarProfile. If no managedFields are found in sidecarProfile for fieldManager, a
+// SidecarProfileApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// sidecarProfile must be a unmodified SidecarProfile API object that was retrieved from the Kubernetes API.
+// ExtractSidecarProfile provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractSidecarProfile(sidecarProfile *apiv1alpha1.SidecarProfile, fieldManager string) (*SidecarProfileApplyConfiguration, error) {
+	return ExtractSidecarProfileFrom(sidecarProfile, fieldManager, "")
+}
+
+// ExtractSidecarProfileStatus extracts the applied configuration owned by fieldManager from
+// sidecarProfile for the status subresource.
+func ExtractSidecarProfileStatus(sidecarProfile *apiv1alpha1.SidecarProfile, fieldManager string) (*SidecarProfileApplyConfiguration, error) {
+	return ExtractSidecarProfileFrom(sidecarProfile, fieldManager, "status")
 }
 
 func (b SidecarProfileApplyConfiguration) IsApplyConfiguration() {}

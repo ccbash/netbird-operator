@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -15,7 +18,7 @@ import (
 //
 // Group is the Schema for the groups API.
 type GroupApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *GroupSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *GroupStatusApplyConfiguration `json:"status,omitempty"`
@@ -30,6 +33,47 @@ func Group(name, namespace string) *GroupApplyConfiguration {
 	b.WithKind("Group")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractGroupFrom extracts the applied configuration owned by fieldManager from
+// group for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// group must be a unmodified Group API object that was retrieved from the Kubernetes API.
+// ExtractGroupFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractGroupFrom(group *apiv1alpha1.Group, fieldManager string, subresource string) (*GroupApplyConfiguration, error) {
+	b := &GroupApplyConfiguration{}
+	err := managedfields.ExtractInto(group, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.Group"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(group.Name)
+	b.WithNamespace(group.Namespace)
+
+	b.WithKind("Group")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractGroup extracts the applied configuration owned by fieldManager from
+// group. If no managedFields are found in group for fieldManager, a
+// GroupApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// group must be a unmodified Group API object that was retrieved from the Kubernetes API.
+// ExtractGroup provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractGroup(group *apiv1alpha1.Group, fieldManager string) (*GroupApplyConfiguration, error) {
+	return ExtractGroupFrom(group, fieldManager, "")
+}
+
+// ExtractGroupStatus extracts the applied configuration owned by fieldManager from
+// group for the status subresource.
+func ExtractGroupStatus(group *apiv1alpha1.Group, fieldManager string) (*GroupApplyConfiguration, error) {
+	return ExtractGroupFrom(group, fieldManager, "status")
 }
 
 func (b GroupApplyConfiguration) IsApplyConfiguration() {}

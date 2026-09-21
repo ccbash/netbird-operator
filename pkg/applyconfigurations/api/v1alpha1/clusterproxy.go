@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -15,7 +18,7 @@ import (
 //
 // ClusterProxy is the Schema for the clusterproxies API
 type ClusterProxyApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *ClusterProxySpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *ClusterProxyStatusApplyConfiguration `json:"status,omitempty"`
@@ -30,6 +33,47 @@ func ClusterProxy(name, namespace string) *ClusterProxyApplyConfiguration {
 	b.WithKind("ClusterProxy")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractClusterProxyFrom extracts the applied configuration owned by fieldManager from
+// clusterProxy for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// clusterProxy must be a unmodified ClusterProxy API object that was retrieved from the Kubernetes API.
+// ExtractClusterProxyFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractClusterProxyFrom(clusterProxy *apiv1alpha1.ClusterProxy, fieldManager string, subresource string) (*ClusterProxyApplyConfiguration, error) {
+	b := &ClusterProxyApplyConfiguration{}
+	err := managedfields.ExtractInto(clusterProxy, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.ClusterProxy"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(clusterProxy.Name)
+	b.WithNamespace(clusterProxy.Namespace)
+
+	b.WithKind("ClusterProxy")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractClusterProxy extracts the applied configuration owned by fieldManager from
+// clusterProxy. If no managedFields are found in clusterProxy for fieldManager, a
+// ClusterProxyApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// clusterProxy must be a unmodified ClusterProxy API object that was retrieved from the Kubernetes API.
+// ExtractClusterProxy provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractClusterProxy(clusterProxy *apiv1alpha1.ClusterProxy, fieldManager string) (*ClusterProxyApplyConfiguration, error) {
+	return ExtractClusterProxyFrom(clusterProxy, fieldManager, "")
+}
+
+// ExtractClusterProxyStatus extracts the applied configuration owned by fieldManager from
+// clusterProxy for the status subresource.
+func ExtractClusterProxyStatus(clusterProxy *apiv1alpha1.ClusterProxy, fieldManager string) (*ClusterProxyApplyConfiguration, error) {
+	return ExtractClusterProxyFrom(clusterProxy, fieldManager, "status")
 }
 
 func (b ClusterProxyApplyConfiguration) IsApplyConfiguration() {}

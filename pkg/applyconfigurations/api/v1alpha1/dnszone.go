@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -16,7 +19,7 @@ import (
 // DNSZone is the Schema for the dnszones API. It is a thin mirror of a NetBird
 // managed DNS zone.
 type DNSZoneApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *DNSZoneSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *DNSZoneStatusApplyConfiguration `json:"status,omitempty"`
@@ -31,6 +34,47 @@ func DNSZone(name, namespace string) *DNSZoneApplyConfiguration {
 	b.WithKind("DNSZone")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractDNSZoneFrom extracts the applied configuration owned by fieldManager from
+// dNSZone for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// dNSZone must be a unmodified DNSZone API object that was retrieved from the Kubernetes API.
+// ExtractDNSZoneFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractDNSZoneFrom(dNSZone *apiv1alpha1.DNSZone, fieldManager string, subresource string) (*DNSZoneApplyConfiguration, error) {
+	b := &DNSZoneApplyConfiguration{}
+	err := managedfields.ExtractInto(dNSZone, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSZone"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(dNSZone.Name)
+	b.WithNamespace(dNSZone.Namespace)
+
+	b.WithKind("DNSZone")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractDNSZone extracts the applied configuration owned by fieldManager from
+// dNSZone. If no managedFields are found in dNSZone for fieldManager, a
+// DNSZoneApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// dNSZone must be a unmodified DNSZone API object that was retrieved from the Kubernetes API.
+// ExtractDNSZone provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractDNSZone(dNSZone *apiv1alpha1.DNSZone, fieldManager string) (*DNSZoneApplyConfiguration, error) {
+	return ExtractDNSZoneFrom(dNSZone, fieldManager, "")
+}
+
+// ExtractDNSZoneStatus extracts the applied configuration owned by fieldManager from
+// dNSZone for the status subresource.
+func ExtractDNSZoneStatus(dNSZone *apiv1alpha1.DNSZone, fieldManager string) (*DNSZoneApplyConfiguration, error) {
+	return ExtractDNSZoneFrom(dNSZone, fieldManager, "status")
 }
 
 func (b DNSZoneApplyConfiguration) IsApplyConfiguration() {}

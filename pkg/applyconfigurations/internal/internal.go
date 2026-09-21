@@ -25,6 +25,1326 @@ func Parser() *typed.Parser {
 var parserOnce sync.Once
 var parser *typed.Parser
 var schemaYAML = typed.YAMLObject(`types:
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.AccessRestrictions
+  map:
+    fields:
+    - name: allowedCidrs
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: allowedCountries
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: blockedCidrs
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: blockedCountries
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ClusterProxy
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ClusterProxySpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ClusterProxyStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ClusterProxySpec
+  map:
+    fields:
+    - name: apiServer
+      type:
+        scalar: string
+      default: https://kubernetes.default.svc.cluster.local
+    - name: clusterName
+      type:
+        scalar: string
+    - name: groups
+      type:
+        list:
+          elementType:
+            namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+          elementRelationship: atomic
+    - name: replicas
+      type:
+        scalar: numeric
+      default: 3
+    - name: serviceAccountName
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ClusterProxyStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: observedGeneration
+      type:
+        scalar: numeric
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ContainerOverride
+  map:
+    fields:
+    - name: env
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.core.v1.EnvVar
+          elementRelationship: atomic
+    - name: image
+      type:
+        scalar: string
+    - name: livenessProbe
+      type:
+        namedType: io.k8s.api.core.v1.Probe
+    - name: readinessProbe
+      type:
+        namedType: io.k8s.api.core.v1.Probe
+    - name: securityContext
+      type:
+        namedType: io.k8s.api.core.v1.SecurityContext
+    - name: startupProbe
+      type:
+        namedType: io.k8s.api.core.v1.Probe
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.CrossNamespaceReference
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+    - name: namespace
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.CrowdsecMode
+  scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSRecord
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSRecordSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSRecordStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSRecordSpec
+  map:
+    fields:
+    - name: content
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+    - name: ttl
+      type:
+        scalar: numeric
+      default: 300
+    - name: type
+      type:
+        scalar: string
+    - name: zoneRef
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.CrossNamespaceReference
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSRecordStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: recordID
+      type:
+        scalar: string
+    - name: zoneID
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSZone
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSZoneSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSZoneStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSZoneSpec
+  map:
+    fields:
+    - name: distributionGroups
+      type:
+        list:
+          elementType:
+            namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+          elementRelationship: atomic
+    - name: domain
+      type:
+        scalar: string
+    - name: enableSearchDomain
+      type:
+        scalar: boolean
+    - name: enabled
+      type:
+        scalar: boolean
+      default: true
+    - name: name
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.DNSZoneStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: zoneID
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.Group
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+  map:
+    fields:
+    - name: id
+      type:
+        scalar: string
+    - name: localRef
+      type:
+        namedType: io.k8s.api.core.v1.LocalObjectReference
+    - name: name
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupSpec
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: groupID
+      type:
+        scalar: string
+    - name: observedGeneration
+      type:
+        scalar: numeric
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.InjectionMode
+  scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.Network
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkResource
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkResourceSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkResourceStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkResourceSpec
+  map:
+    fields:
+    - name: address
+      type:
+        scalar: string
+    - name: description
+      type:
+        scalar: string
+    - name: enabled
+      type:
+        scalar: boolean
+      default: true
+    - name: groups
+      type:
+        list:
+          elementType:
+            namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+          elementRelationship: atomic
+    - name: name
+      type:
+        scalar: string
+    - name: networkRef
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.CrossNamespaceReference
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkResourceStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: networkID
+      type:
+        scalar: string
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: resourceID
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouter
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouterSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouterStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouterPeers
+  map:
+    fields:
+    - name: deploy
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.RouterDeploy
+    - name: group
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouterSpec
+  map:
+    fields:
+    - name: enabled
+      type:
+        scalar: boolean
+      default: true
+    - name: masquerade
+      type:
+        scalar: boolean
+      default: true
+    - name: metric
+      type:
+        scalar: numeric
+      default: 9999
+    - name: networkRef
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.CrossNamespaceReference
+    - name: peers
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouterPeers
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouterStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: groupID
+      type:
+        scalar: string
+    - name: networkID
+      type:
+        scalar: string
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: routerID
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkSpec
+  map:
+    fields:
+    - name: description
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: networkID
+      type:
+        scalar: string
+    - name: observedGeneration
+      type:
+        scalar: numeric
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyBackend
+  map:
+    fields:
+    - name: path
+      type:
+        scalar: string
+    - name: port
+      type:
+        scalar: numeric
+    - name: serviceRef
+      type:
+        namedType: io.k8s.api.core.v1.LocalObjectReference
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyCluster
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyClusterSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyClusterStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyClusterSpec
+  map:
+    fields:
+    - name: certSecretName
+      type:
+        scalar: string
+    - name: clusterAddress
+      type:
+        scalar: string
+    - name: domain
+      type:
+        scalar: string
+    - name: groups
+      type:
+        list:
+          elementType:
+            namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+          elementRelationship: atomic
+    - name: image
+      type:
+        scalar: string
+    - name: logLevel
+      type:
+        scalar: string
+    - name: private
+      type:
+        scalar: boolean
+    - name: replicas
+      type:
+        scalar: numeric
+      default: 1
+    - name: serviceAnnotations
+      type:
+        map:
+          elementType:
+            scalar: string
+    - name: zoneRef
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.CrossNamespaceReference
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyClusterStatus
+  map:
+    fields:
+    - name: clusterAddress
+      type:
+        scalar: string
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: connectedProxies
+      type:
+        scalar: numeric
+    - name: domainID
+      type:
+        scalar: string
+    - name: loadBalancerIP
+      type:
+        scalar: string
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: online
+      type:
+        scalar: boolean
+    - name: tokenID
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyMode
+  scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyService
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyServiceSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyServiceStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyServiceSpec
+  map:
+    fields:
+    - name: accessGroups
+      type:
+        list:
+          elementType:
+            namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+          elementRelationship: atomic
+    - name: accessRestrictions
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.AccessRestrictions
+    - name: backends
+      type:
+        list:
+          elementType:
+            namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyBackend
+          elementRelationship: atomic
+    - name: crowdsecMode
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.CrowdsecMode
+    - name: domain
+      type:
+        scalar: string
+    - name: listenPort
+      type:
+        scalar: numeric
+    - name: mode
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyMode
+      default: http
+    - name: passHostHeader
+      type:
+        scalar: boolean
+    - name: private
+      type:
+        scalar: boolean
+    - name: proxyCluster
+      type:
+        scalar: string
+    - name: proxyProtocol
+      type:
+        scalar: boolean
+    - name: rewriteRedirects
+      type:
+        scalar: boolean
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyServiceStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: serviceDomain
+      type:
+        scalar: string
+    - name: serviceID
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.RouterDeploy
+  map:
+    fields:
+    - name: image
+      type:
+        scalar: string
+    - name: logLevel
+      type:
+        scalar: string
+    - name: nodeSelector
+      type:
+        map:
+          elementType:
+            scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SetupKey
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SetupKeySpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SetupKeyStatus
+      default:
+        observedGeneration: -1
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SetupKeySpec
+  map:
+    fields:
+    - name: allowExtraDnsLabels
+      type:
+        scalar: boolean
+      default: false
+    - name: autoGroups
+      type:
+        list:
+          elementType:
+            namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.GroupReference
+          elementRelationship: atomic
+    - name: duration
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+    - name: ephemeral
+      type:
+        scalar: boolean
+    - name: name
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SetupKeyStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: setupKeyID
+      type:
+        scalar: string
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SidecarProfile
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+    - name: spec
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SidecarProfileSpec
+    - name: status
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SidecarProfileStatus
+      default: {}
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SidecarProfileSpec
+  map:
+    fields:
+    - name: containerOverride
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.ContainerOverride
+    - name: extraDNSLabels
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+    - name: injectionMode
+      type:
+        namedType: com.github.netbirdio.kubernetes-operator.api.v1alpha1.InjectionMode
+      default: Sidecar
+    - name: podSelector
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+    - name: setupKeyRef
+      type:
+        namedType: io.k8s.api.core.v1.LocalObjectReference
+- name: com.github.netbirdio.kubernetes-operator.api.v1alpha1.SidecarProfileStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: observedGeneration
+      type:
+        scalar: numeric
+- name: io.k8s.api.core.v1.AppArmorProfile
+  map:
+    fields:
+    - name: localhostProfile
+      type:
+        scalar: string
+    - name: type
+      type:
+        namedType: io.k8s.api.core.v1.AppArmorProfileType
+- name: io.k8s.api.core.v1.AppArmorProfileType
+  scalar: string
+- name: io.k8s.api.core.v1.Capabilities
+  map:
+    fields:
+    - name: add
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.core.v1.Capability
+          elementRelationship: atomic
+    - name: drop
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.core.v1.Capability
+          elementRelationship: atomic
+- name: io.k8s.api.core.v1.Capability
+  scalar: string
+- name: io.k8s.api.core.v1.ConfigMapKeySelector
+  map:
+    fields:
+    - name: key
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+      default: ""
+    - name: optional
+      type:
+        scalar: boolean
+    elementRelationship: atomic
+- name: io.k8s.api.core.v1.EnvVar
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+    - name: value
+      type:
+        scalar: string
+    - name: valueFrom
+      type:
+        namedType: io.k8s.api.core.v1.EnvVarSource
+- name: io.k8s.api.core.v1.EnvVarSource
+  map:
+    fields:
+    - name: configMapKeyRef
+      type:
+        namedType: io.k8s.api.core.v1.ConfigMapKeySelector
+    - name: fieldRef
+      type:
+        namedType: io.k8s.api.core.v1.ObjectFieldSelector
+    - name: fileKeyRef
+      type:
+        namedType: io.k8s.api.core.v1.FileKeySelector
+    - name: resourceFieldRef
+      type:
+        namedType: io.k8s.api.core.v1.ResourceFieldSelector
+    - name: secretKeyRef
+      type:
+        namedType: io.k8s.api.core.v1.SecretKeySelector
+- name: io.k8s.api.core.v1.ExecAction
+  map:
+    fields:
+    - name: command
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+- name: io.k8s.api.core.v1.FileKeySelector
+  map:
+    fields:
+    - name: key
+      type:
+        scalar: string
+    - name: optional
+      type:
+        scalar: boolean
+      default: false
+    - name: path
+      type:
+        scalar: string
+    - name: volumeName
+      type:
+        scalar: string
+    elementRelationship: atomic
+- name: io.k8s.api.core.v1.GRPCAction
+  map:
+    fields:
+    - name: mode
+      type:
+        namedType: io.k8s.api.core.v1.GRPCProbeMode
+    - name: port
+      type:
+        scalar: numeric
+    - name: service
+      type:
+        scalar: string
+      default: ""
+- name: io.k8s.api.core.v1.GRPCProbeMode
+  scalar: string
+- name: io.k8s.api.core.v1.HTTPGetAction
+  map:
+    fields:
+    - name: host
+      type:
+        scalar: string
+    - name: httpHeaders
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.core.v1.HTTPHeader
+          elementRelationship: atomic
+    - name: path
+      type:
+        scalar: string
+    - name: port
+      type:
+        namedType: io.k8s.apimachinery.pkg.util.intstr.IntOrString
+    - name: protocol
+      type:
+        namedType: io.k8s.api.core.v1.HTTPProtocol
+    - name: scheme
+      type:
+        namedType: io.k8s.api.core.v1.URIScheme
+- name: io.k8s.api.core.v1.HTTPHeader
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+    - name: value
+      type:
+        scalar: string
+- name: io.k8s.api.core.v1.HTTPProtocol
+  scalar: string
+- name: io.k8s.api.core.v1.LocalObjectReference
+  map:
+    fields:
+    - name: name
+      type:
+        scalar: string
+      default: ""
+    elementRelationship: atomic
+- name: io.k8s.api.core.v1.ObjectFieldSelector
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: fieldPath
+      type:
+        scalar: string
+    elementRelationship: atomic
+- name: io.k8s.api.core.v1.Probe
+  map:
+    fields:
+    - name: exec
+      type:
+        namedType: io.k8s.api.core.v1.ExecAction
+    - name: failureThreshold
+      type:
+        scalar: numeric
+    - name: grpc
+      type:
+        namedType: io.k8s.api.core.v1.GRPCAction
+    - name: httpGet
+      type:
+        namedType: io.k8s.api.core.v1.HTTPGetAction
+    - name: initialDelaySeconds
+      type:
+        scalar: numeric
+    - name: periodSeconds
+      type:
+        scalar: numeric
+    - name: successThreshold
+      type:
+        scalar: numeric
+    - name: tcpSocket
+      type:
+        namedType: io.k8s.api.core.v1.TCPSocketAction
+    - name: terminationGracePeriodSeconds
+      type:
+        scalar: numeric
+    - name: timeoutSeconds
+      type:
+        scalar: numeric
+- name: io.k8s.api.core.v1.ProcMountType
+  scalar: string
+- name: io.k8s.api.core.v1.ResourceFieldSelector
+  map:
+    fields:
+    - name: containerName
+      type:
+        scalar: string
+    - name: divisor
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: resource
+      type:
+        scalar: string
+    elementRelationship: atomic
+- name: io.k8s.api.core.v1.SELinuxOptions
+  map:
+    fields:
+    - name: level
+      type:
+        scalar: string
+    - name: role
+      type:
+        scalar: string
+    - name: type
+      type:
+        scalar: string
+    - name: user
+      type:
+        scalar: string
+- name: io.k8s.api.core.v1.SeccompProfile
+  map:
+    fields:
+    - name: localhostProfile
+      type:
+        scalar: string
+    - name: type
+      type:
+        namedType: io.k8s.api.core.v1.SeccompProfileType
+- name: io.k8s.api.core.v1.SeccompProfileType
+  scalar: string
+- name: io.k8s.api.core.v1.SecretKeySelector
+  map:
+    fields:
+    - name: key
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+      default: ""
+    - name: optional
+      type:
+        scalar: boolean
+    elementRelationship: atomic
+- name: io.k8s.api.core.v1.SecurityContext
+  map:
+    fields:
+    - name: allowPrivilegeEscalation
+      type:
+        scalar: boolean
+    - name: appArmorProfile
+      type:
+        namedType: io.k8s.api.core.v1.AppArmorProfile
+    - name: capabilities
+      type:
+        namedType: io.k8s.api.core.v1.Capabilities
+    - name: privileged
+      type:
+        scalar: boolean
+    - name: procMount
+      type:
+        namedType: io.k8s.api.core.v1.ProcMountType
+    - name: readOnlyRootFilesystem
+      type:
+        scalar: boolean
+    - name: runAsGroup
+      type:
+        scalar: numeric
+    - name: runAsNonRoot
+      type:
+        scalar: boolean
+    - name: runAsUser
+      type:
+        scalar: numeric
+    - name: seLinuxOptions
+      type:
+        namedType: io.k8s.api.core.v1.SELinuxOptions
+    - name: seccompProfile
+      type:
+        namedType: io.k8s.api.core.v1.SeccompProfile
+    - name: windowsOptions
+      type:
+        namedType: io.k8s.api.core.v1.WindowsSecurityContextOptions
+- name: io.k8s.api.core.v1.TCPSocketAction
+  map:
+    fields:
+    - name: host
+      type:
+        scalar: string
+    - name: port
+      type:
+        namedType: io.k8s.apimachinery.pkg.util.intstr.IntOrString
+- name: io.k8s.api.core.v1.URIScheme
+  scalar: string
+- name: io.k8s.api.core.v1.WindowsSecurityContextOptions
+  map:
+    fields:
+    - name: gmsaCredentialSpec
+      type:
+        scalar: string
+    - name: gmsaCredentialSpecName
+      type:
+        scalar: string
+    - name: hostProcess
+      type:
+        scalar: boolean
+    - name: runAsUserName
+      type:
+        scalar: string
+- name: io.k8s.apimachinery.pkg.api.resource.Quantity
+  scalar: untyped
+  list:
+    elementType:
+      namedType: __untyped_atomic_
+    elementRelationship: atomic
+  map:
+    elementType:
+      namedType: __untyped_deduced_
+    elementRelationship: separable
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+  map:
+    fields:
+    - name: lastTransitionTime
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: message
+      type:
+        scalar: string
+    - name: observedGeneration
+      type:
+        scalar: numeric
+    - name: reason
+      type:
+        scalar: string
+    - name: status
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ConditionStatus
+    - name: type
+      type:
+        scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.ConditionStatus
+  scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.Duration
+  scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.FieldsV1
+  map:
+    elementType:
+      scalar: untyped
+      list:
+        elementType:
+          namedType: __untyped_atomic_
+        elementRelationship: atomic
+      map:
+        elementType:
+          namedType: __untyped_deduced_
+        elementRelationship: separable
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
+  map:
+    fields:
+    - name: matchExpressions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorRequirement
+          elementRelationship: atomic
+    - name: matchLabels
+      type:
+        map:
+          elementType:
+            scalar: string
+    elementRelationship: atomic
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorOperator
+  scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorRequirement
+  map:
+    fields:
+    - name: key
+      type:
+        scalar: string
+    - name: operator
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelectorOperator
+    - name: values
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: atomic
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.ManagedFieldsEntry
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: fieldsType
+      type:
+        scalar: string
+    - name: fieldsV1
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.FieldsV1
+    - name: manager
+      type:
+        scalar: string
+    - name: operation
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ManagedFieldsOperationType
+    - name: subresource
+      type:
+        scalar: string
+    - name: time
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.ManagedFieldsOperationType
+  scalar: string
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+  map:
+    fields:
+    - name: annotations
+      type:
+        map:
+          elementType:
+            scalar: string
+    - name: creationTimestamp
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: deletionGracePeriodSeconds
+      type:
+        scalar: numeric
+    - name: deletionTimestamp
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+    - name: finalizers
+      type:
+        list:
+          elementType:
+            scalar: string
+          elementRelationship: associative
+    - name: generateName
+      type:
+        scalar: string
+    - name: generation
+      type:
+        scalar: numeric
+    - name: labels
+      type:
+        map:
+          elementType:
+            scalar: string
+    - name: managedFields
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ManagedFieldsEntry
+          elementRelationship: atomic
+    - name: name
+      type:
+        scalar: string
+    - name: namespace
+      type:
+        scalar: string
+    - name: ownerReferences
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.OwnerReference
+          elementRelationship: associative
+          keys:
+          - uid
+    - name: resourceVersion
+      type:
+        scalar: string
+    - name: selfLink
+      type:
+        scalar: string
+    - name: uid
+      type:
+        namedType: io.k8s.apimachinery.pkg.types.UID
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.OwnerReference
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: blockOwnerDeletion
+      type:
+        scalar: boolean
+    - name: controller
+      type:
+        scalar: boolean
+    - name: kind
+      type:
+        scalar: string
+    - name: name
+      type:
+        scalar: string
+    - name: uid
+      type:
+        namedType: io.k8s.apimachinery.pkg.types.UID
+    elementRelationship: atomic
+- name: io.k8s.apimachinery.pkg.apis.meta.v1.Time
+  scalar: untyped
+- name: io.k8s.apimachinery.pkg.types.UID
+  scalar: string
+- name: io.k8s.apimachinery.pkg.util.intstr.IntOrString
+  scalar: untyped
+  list:
+    elementType:
+      namedType: __untyped_atomic_
+    elementRelationship: atomic
+  map:
+    elementType:
+      namedType: __untyped_deduced_
+    elementRelationship: separable
 - name: __untyped_atomic_
   scalar: untyped
   list:

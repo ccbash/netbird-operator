@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -16,7 +19,7 @@ import (
 // ReverseProxyCluster deploys and enrolls a NetBird bring-your-own reverse proxy
 // and registers it as the account's own proxy cluster.
 type ReverseProxyClusterApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *ReverseProxyClusterSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *ReverseProxyClusterStatusApplyConfiguration `json:"status,omitempty"`
@@ -31,6 +34,47 @@ func ReverseProxyCluster(name, namespace string) *ReverseProxyClusterApplyConfig
 	b.WithKind("ReverseProxyCluster")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractReverseProxyClusterFrom extracts the applied configuration owned by fieldManager from
+// reverseProxyCluster for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// reverseProxyCluster must be a unmodified ReverseProxyCluster API object that was retrieved from the Kubernetes API.
+// ExtractReverseProxyClusterFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractReverseProxyClusterFrom(reverseProxyCluster *apiv1alpha1.ReverseProxyCluster, fieldManager string, subresource string) (*ReverseProxyClusterApplyConfiguration, error) {
+	b := &ReverseProxyClusterApplyConfiguration{}
+	err := managedfields.ExtractInto(reverseProxyCluster, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.ReverseProxyCluster"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(reverseProxyCluster.Name)
+	b.WithNamespace(reverseProxyCluster.Namespace)
+
+	b.WithKind("ReverseProxyCluster")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractReverseProxyCluster extracts the applied configuration owned by fieldManager from
+// reverseProxyCluster. If no managedFields are found in reverseProxyCluster for fieldManager, a
+// ReverseProxyClusterApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// reverseProxyCluster must be a unmodified ReverseProxyCluster API object that was retrieved from the Kubernetes API.
+// ExtractReverseProxyCluster provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractReverseProxyCluster(reverseProxyCluster *apiv1alpha1.ReverseProxyCluster, fieldManager string) (*ReverseProxyClusterApplyConfiguration, error) {
+	return ExtractReverseProxyClusterFrom(reverseProxyCluster, fieldManager, "")
+}
+
+// ExtractReverseProxyClusterStatus extracts the applied configuration owned by fieldManager from
+// reverseProxyCluster for the status subresource.
+func ExtractReverseProxyClusterStatus(reverseProxyCluster *apiv1alpha1.ReverseProxyCluster, fieldManager string) (*ReverseProxyClusterApplyConfiguration, error) {
+	return ExtractReverseProxyClusterFrom(reverseProxyCluster, fieldManager, "status")
 }
 
 func (b ReverseProxyClusterApplyConfiguration) IsApplyConfiguration() {}

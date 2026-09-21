@@ -5,8 +5,11 @@
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/netbirdio/kubernetes-operator/api/v1alpha1"
+	internal "github.com/netbirdio/kubernetes-operator/pkg/applyconfigurations/internal"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -16,7 +19,7 @@ import (
 // NetworkRouter is the Schema for the networkrouters API: a NetBird router (a
 // peer group bound to a network) plus its routing-peer source.
 type NetworkRouterApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *NetworkRouterSpecApplyConfiguration   `json:"spec,omitempty"`
 	Status                           *NetworkRouterStatusApplyConfiguration `json:"status,omitempty"`
@@ -31,6 +34,47 @@ func NetworkRouter(name, namespace string) *NetworkRouterApplyConfiguration {
 	b.WithKind("NetworkRouter")
 	b.WithAPIVersion("netbird.io/v1alpha1")
 	return b
+}
+
+// ExtractNetworkRouterFrom extracts the applied configuration owned by fieldManager from
+// networkRouter for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
+// networkRouter must be a unmodified NetworkRouter API object that was retrieved from the Kubernetes API.
+// ExtractNetworkRouterFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractNetworkRouterFrom(networkRouter *apiv1alpha1.NetworkRouter, fieldManager string, subresource string) (*NetworkRouterApplyConfiguration, error) {
+	b := &NetworkRouterApplyConfiguration{}
+	err := managedfields.ExtractInto(networkRouter, internal.Parser().Type("com.github.netbirdio.kubernetes-operator.api.v1alpha1.NetworkRouter"), fieldManager, b, subresource)
+	if err != nil {
+		return nil, err
+	}
+	b.WithName(networkRouter.Name)
+	b.WithNamespace(networkRouter.Namespace)
+
+	b.WithKind("NetworkRouter")
+	b.WithAPIVersion("netbird.io/v1alpha1")
+	return b, nil
+}
+
+// ExtractNetworkRouter extracts the applied configuration owned by fieldManager from
+// networkRouter. If no managedFields are found in networkRouter for fieldManager, a
+// NetworkRouterApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// networkRouter must be a unmodified NetworkRouter API object that was retrieved from the Kubernetes API.
+// ExtractNetworkRouter provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractNetworkRouter(networkRouter *apiv1alpha1.NetworkRouter, fieldManager string) (*NetworkRouterApplyConfiguration, error) {
+	return ExtractNetworkRouterFrom(networkRouter, fieldManager, "")
+}
+
+// ExtractNetworkRouterStatus extracts the applied configuration owned by fieldManager from
+// networkRouter for the status subresource.
+func ExtractNetworkRouterStatus(networkRouter *apiv1alpha1.NetworkRouter, fieldManager string) (*NetworkRouterApplyConfiguration, error) {
+	return ExtractNetworkRouterFrom(networkRouter, fieldManager, "status")
 }
 
 func (b NetworkRouterApplyConfiguration) IsApplyConfiguration() {}
