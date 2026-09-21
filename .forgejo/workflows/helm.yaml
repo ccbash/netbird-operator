@@ -12,6 +12,15 @@ jobs:
       - name: Install git
         run: apk add --no-cache git
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          url="https://codeberg.org/${GITHUB_REPOSITORY}.git"
+          [ -n "${GITHUB_TOKEN:-}" ] && url="https://x-access-token:${GITHUB_TOKEN}@codeberg.org/${GITHUB_REPOSITORY}.git"
+          git init -q .
+          git remote add origin "$url" 2>/dev/null || git remote set-url origin "$url"
+          git fetch -q --no-tags --depth 1 origin "$GITHUB_REF"
+          git checkout -q --force FETCH_HEAD
       - name: Lint Helm Chart
         run: helm lint ./charts/netbird-operator
