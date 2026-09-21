@@ -1,0 +1,127 @@
+name: build-image
+
+# Builds and pushes a multi-arch operator image to the Codeberg package registry
+# on every branch push and on demand, so a fork/dev build can be tested in a
+# cluster without cutting a release (that path is handled by release.yaml).
+on:
+  push:
+    branches:
+      - '**'
+      # Dependency bumps are never deployed from their own branch — they land on
+      # main first — so skip the multi-arch image + per-branch dev chart for
+      # them (go.yaml still lints/tests the PR). Use workflow_dispatch if one
+      # ever needs a real build.
+      - '!renovate/**'
+    tags-ignore:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to push (defaults to the sanitized branch name)'
+        required: false
+        type: string
+
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: codeberg.org
+  IMAGE_REPOSITORY: ccbash-oss/netbird-operator
+  CHART_OCI: oci://codeberg.org/ccbash-oss/helm-charts
+
+jobs:
+  image:
+    runs-on: docker
+    container:
+      # Builder image with podman/buildah preinstalled. The runner must expose a
+      # podman socket (or run the job privileged) for the nested build.
+      image: quay.io/podman/stable:latest
+    steps:
+      - name: Install build dependencies
+        run: dnf install -y git make golang
+      - name: Clone the code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+      - name: Login to Codeberg registry
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: podman login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+      - name: Resolve image tags
+        id: tags
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            ref_tag="${{ github.event.inputs.tag }}"
+          else
+            ref_tag=$(printf '%s' "$GITHUB_REF_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          fi
+          sha_tag="sha-$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          echo "ref_tag=${ref_tag}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${sha_tag}" >> "$GITHUB_OUTPUT"
+      - name: Build multi-arch image
+        run: |
+          make build-image-multiarch \
+            CONTAINER_ENGINE=podman \
+            IMG_REGISTRY="$REGISTRY" \
+            IMG_REPOSITORY="$IMAGE_REPOSITORY" \
+            IMG_TAG="${{ steps.tags.outputs.sha_tag }}"
+      - name: Push image
+        run: |
+          base="${REGISTRY}/${IMAGE_REPOSITORY}"
+          sha_tag="${{ steps.tags.outputs.sha_tag }}"
+          ref_tag="${{ steps.tags.outputs.ref_tag }}"
+          podman manifest push --all "${base}:${sha_tag}" "docker://${base}:${sha_tag}"
+          podman manifest create "${base}:${ref_tag}" "${base}:${sha_tag}-amd64" "${base}:${sha_tag}-arm64"
+          podman manifest push --all "${base}:${ref_tag}" "docker://${base}:${ref_tag}"
+          {
+            echo "### Pushed image"
+            echo '```'
+            echo "${base}:${sha_tag}"
+            echo "${base}:${ref_tag}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  chart:
+    runs-on: docker
+    container:
+      image: alpine/helm:4.3.0
+    steps:
+      - name: Install git
+        run: apk add --no-cache git
+      - name: Clone the code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+      - name: Resolve tags
+        id: tags
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            ref_tag="${{ github.event.inputs.tag }}"
+          else
+            ref_tag=$(printf '%s' "$GITHUB_REF_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          fi
+          sha_tag="sha-$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          echo "ref_tag=${ref_tag}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${sha_tag}" >> "$GITHUB_OUTPUT"
+      - name: Build and push Helm chart
+        # Publish a per-branch dev chart so each development stream is isolated
+        # and ships its own (possibly changed) CRDs. The branch lives in the
+        # chart NAME (netbird-operator-<branch>) — not the version, because Helm
+        # versions must be semver and Flux can't select "latest prerelease of a
+        # branch". The version is a plain, monotonically increasing
+        # 0.0.<run_number> so Flux orders it; a HelmRelease pinned to
+        # chart: netbird-operator-<branch> + version "0.0.x" tracks that branch.
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          chart_name="netbird-operator-${{ steps.tags.outputs.ref_tag }}"
+          chart_version="0.0.${{ github.run_number }}"
+          sed -i "s/^name: .*/name: ${chart_name}/" charts/netbird-operator/Chart.yaml
+          helm registry login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+          helm package --app-version "${{ steps.tags.outputs.sha_tag }}" --version "${chart_version}" charts/netbird-operator
+          helm push "${chart_name}-${chart_version}.tgz" "$CHART_OCI"
+          {
+            echo "### Pushed chart"
+            echo '```'
+            echo "${CHART_OCI}/${chart_name}:${chart_version}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

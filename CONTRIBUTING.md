@@ -10,8 +10,8 @@ Everyone participating is expected to follow our
 
 ## Where to start
 
-- **Questions / ideas** — open a [Discussion](https://github.com/ccbash/kubernetes-operator/discussions).
-- **Bugs** — open an [issue](https://github.com/ccbash/kubernetes-operator/issues/new/choose) with the bug template.
+- **Questions / ideas** — open an [issue](https://codeberg.org/ccbash-oss/netbird-operator/issues).
+- **Bugs** — open an [issue](https://codeberg.org/ccbash-oss/netbird-operator/issues/new) with the bug template.
 - **Features** — open a feature issue (or a Discussion) first; see the policy below.
 - **Security vulnerabilities** — do **not** open a public issue. Follow the
   [Security Policy](SECURITY.md).
@@ -39,7 +39,7 @@ The linter is the source of truth for style.
 make lint        # golangci-lint
 make generate    # regenerate deepcopy, CRDs, applyconfigs, docs/api-reference.md (after api/ changes)
 make test-unit   # unit/integration suite (envtest)
-make test-e2e    # e2e (needs Docker)
+make test-e2e    # e2e (needs a container engine: podman or docker)
 ```
 
 Run the operator locally against your current kube-context (webhooks disabled):
@@ -72,8 +72,19 @@ are cut on a `release/v0.X.x` branch from `main` so bug fixes can be backported
 and patch releases cut without pulling in new features.
 
 1. For a new minor release, create the release branch from the latest `main`.
-2. Create a [new release](https://github.com/ccbash/kubernetes-operator/releases/new)
-   in GitHub, with a new tag and the **release branch** as the target.
+2. Create a [new release](https://codeberg.org/ccbash-oss/netbird-operator/releases/new)
+   in Codeberg, with a new tag and the **release branch** as the target.
 3. Set the title to the release version and "Generate release notes".
-4. Publish — the [release workflow](.github/workflows/release.yaml) then publishes
-   the operator image and Helm chart to GHCR under `ghcr.io/ccbash`.
+4. Publish — the [release workflow](.forgejo/workflows/release.yaml) then
+   publishes the operator image and Helm chart to the Codeberg package registry
+   under `codeberg.org/ccbash-oss`.
+
+## CI
+
+CI runs on self-hosted [Forgejo Actions](https://docs.codeberg.org/ci/actions/)
+(pipelines in [`.forgejo/workflows`](.forgejo/workflows)). Image builds use
+podman/buildah, so the runner must expose a podman socket or run those jobs
+privileged. Publishing needs these repository secrets:
+
+- `REGISTRY_USERNAME` — Codeberg user the token belongs to.
+- `REGISTRY_TOKEN` — Codeberg access token with the `write:package` scope.

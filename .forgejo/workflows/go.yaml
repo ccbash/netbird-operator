@@ -1,0 +1,61 @@
+name: go
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+jobs:
+  lint:
+    runs-on: docker
+    container:
+      image: golangci/golangci-lint:v2.13.2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+      - name: Run linter
+        run: golangci-lint run ./...
+
+  test:
+    runs-on: docker
+    container:
+      image: golang:1.27-bookworm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+      - name: Verify go mod is not dirty
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          go mod tidy
+          git diff --exit-code
+      - name: Verify generate is not dirty
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          make -B generate
+          git diff --exit-code
+      - name: Run unit tests
+        run: make test-unit
+
+  e2e:
+    runs-on: docker
+    # Heavy (builds an image, needs a container runtime). Run on PRs and main
+    # pushes; skip on direct release-branch pushes — lint+test still run there,
+    # and PRs into a release branch exercise e2e.
+    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+    container:
+      # Builder image with podman/buildah preinstalled. The runner must expose a
+      # podman socket (or run the job privileged) for the nested build/kind.
+      image: quay.io/podman/stable:latest
+    env:
+      CONTAINER_ENGINE: podman
+      KIND_EXPERIMENTAL_PROVIDER: podman
+      DOCKER_HOST: unix:///run/podman/podman.sock
+    steps:
+      - name: Install build dependencies
+        run: dnf install -y git make golang
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+      - name: Run e2e tests
+        run: make -B test-e2e

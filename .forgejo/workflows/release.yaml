@@ -1,0 +1,57 @@
+name: release
+
+# Tag pushes (v*) publish the operator image and Helm chart. Tagging from a
+# release in the Codeberg UI also creates the tag, so either path triggers this.
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: codeberg.org
+  IMAGE_REPOSITORY: ccbash-oss/netbird-operator
+  CHART_OCI: oci://codeberg.org/ccbash-oss/helm-charts
+
+jobs:
+  image:
+    runs-on: docker
+    container:
+      image: quay.io/podman/stable:latest
+    steps:
+      - name: Install build dependencies
+        run: dnf install -y git make golang
+      - name: Clone the code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+      - name: Login to Codeberg registry
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: podman login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+      - name: Build and push image
+        run: |
+          make build-image-multiarch \
+            CONTAINER_ENGINE=podman \
+            IMG_REGISTRY="$REGISTRY" \
+            IMG_REPOSITORY="$IMAGE_REPOSITORY" \
+            IMG_TAG="$GITHUB_REF_NAME"
+          base="${REGISTRY}/${IMAGE_REPOSITORY}"
+          podman manifest push --all "${base}:${GITHUB_REF_NAME}" "docker://${base}:${GITHUB_REF_NAME}"
+
+  chart:
+    runs-on: docker
+    container:
+      image: alpine/helm:4.3.0
+    steps:
+      - name: Install git
+        run: apk add --no-cache git
+      - name: Clone the code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4.4.0
+      - name: Build and push Helm chart
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          helm_version="${GITHUB_REF_NAME#v}"
+          helm registry login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+          helm package --app-version "$GITHUB_REF_NAME" --version "$helm_version" charts/netbird-operator
+          helm push "netbird-operator-${helm_version}.tgz" "$CHART_OCI"

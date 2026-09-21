@@ -49,7 +49,7 @@ kubectl create namespace netbird
 kubectl -n netbird create secret generic netbird-mgmt-api-key \
   --from-literal NB_API_KEY=${NETBIRD_API_KEY}
 helm upgrade --install --create-namespace -n netbird netbird-operator \
-  oci://ghcr.io/ccbash/helm-charts/netbird-operator
+  oci://codeberg.org/ccbash-oss/helm-charts/netbird-operator
 ```
 
 The chart reads the API key from the `netbird-mgmt-api-key` secret by default.

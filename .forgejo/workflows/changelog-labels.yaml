@@ -1,0 +1,26 @@
+name: changelog
+
+# Requires exactly one `changelog/*` label on every PR so release notes can be
+# categorised. Replaces mheap/github-action-required-labels, which is tied to
+# the GitHub API.
+on:
+  pull_request:
+    types: [opened, labeled, unlabeled, synchronize]
+
+jobs:
+  labels:
+    runs-on: docker
+    container:
+      image: alpine:3.21
+    steps:
+      - name: Install jq
+        run: apk add --no-cache jq
+      - name: Check changelog label
+        run: |
+          set -eu
+          count=$(jq '[.pull_request.labels[].name | select(test("^changelog/"))] | length' "$GITHUB_EVENT_PATH")
+          if [ "$count" -ne 1 ]; then
+            found=$(jq -r '[.pull_request.labels[].name | select(test("^changelog/"))] | join(", ")' "$GITHUB_EVENT_PATH")
+            echo "::error::PR must carry exactly one changelog/* label; found ${count}: ${found}"
+            exit 1
+          fi

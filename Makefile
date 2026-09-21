@@ -9,8 +9,9 @@ else
 GOBIN = $(shell go env GOBIN)
 endif
 
-IMG_REGISTRY ?= ghcr.io
-IMG_REPOSITORY ?= ccbash/netbird-operator
+CONTAINER_ENGINE ?= docker
+IMG_REGISTRY ?= codeberg.org
+IMG_REPOSITORY ?= ccbash-oss/netbird-operator
 IMG_TAG ?= dev
 IMG_REF := $(IMG_REGISTRY)/$(IMG_REPOSITORY):$(IMG_TAG)
 
@@ -55,13 +56,26 @@ bin/linux-%/netbird-operator: $(shell find api cmd internal pkg) go.mod go.sum
 
 .PHONY: build-image
 build-image: build
-	@DOCKER_BUILDKIT=1 docker build -t ${IMG_REF} .
+	@DOCKER_BUILDKIT=1 $(CONTAINER_ENGINE) build -t ${IMG_REF} .
 	@echo ${IMG_REF}
 
+ifeq ($(CONTAINER_ENGINE),podman)
+# Podman cannot push a multi-platform build in one shot, so build each arch and
+# assemble a manifest list. Neither build needs emulation: the Dockerfile only
+# COPYs a cross-compiled static binary onto the matching distroless base.
 .PHONY: build-image-multiarch
 build-image-multiarch: generate bin/linux-amd64/netbird-operator bin/linux-arm64/netbird-operator
-	@DOCKER_BUILDKIT=1 docker build --platform linux/amd64,linux/arm64 -t ${IMG_REF} .
+	@$(CONTAINER_ENGINE) build --platform linux/amd64 -t ${IMG_REF}-amd64 .
+	@$(CONTAINER_ENGINE) build --platform linux/arm64 -t ${IMG_REF}-arm64 .
+	@$(CONTAINER_ENGINE) manifest rm ${IMG_REF} >/dev/null 2>&1 || true
+	@$(CONTAINER_ENGINE) manifest create ${IMG_REF} ${IMG_REF}-amd64 ${IMG_REF}-arm64
 	@echo ${IMG_REF}
+else
+.PHONY: build-image-multiarch
+build-image-multiarch: generate bin/linux-amd64/netbird-operator bin/linux-arm64/netbird-operator
+	@DOCKER_BUILDKIT=1 $(CONTAINER_ENGINE) build --platform linux/amd64,linux/arm64 -t ${IMG_REF} .
+	@echo ${IMG_REF}
+endif
 
 .PHONY: install
 install: generate
