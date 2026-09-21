@@ -10,6 +10,19 @@
   "labels": [
     "changelog/dependencies"
   ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update pinned images in internal/version/version.go",
+      "managerFilePatterns": [
+        "/^internal\\/version\\/version\\.go$/"
+      ],
+      "matchStrings": [
+        "=\\s*\"(?<depName>[^\":@]+):(?<currentValue>[^@\":]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?\""
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "description": "Fork pin maintained by hand, Renovate cannot resolve a digest",
