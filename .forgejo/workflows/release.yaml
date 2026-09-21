@@ -40,16 +40,16 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Login to Codeberg registry
         env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
           export DOCKER_CONFIG="$(pwd)/.docker"
           mkdir -p "$DOCKER_CONFIG"
-          if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_TOKEN:-}" ]; then
-            echo "::error::REGISTRY_USERNAME and REGISTRY_TOKEN repository secrets must be set"
+          if [ -z "${REGISTRY_USER:-}" ] || [ -z "${REGISTRY_TOKEN:-}" ]; then
+            echo "::error::REGISTRY_USER and REGISTRY_TOKEN repository secrets must be set"
             exit 1
           fi
-          printf '%s' "$REGISTRY_TOKEN" | "$(go env GOPATH)/bin/ko" login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+          printf '%s' "$REGISTRY_TOKEN" | "$(go env GOPATH)/bin/ko" login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
       - name: Build and push image
         run: |
           export DOCKER_CONFIG="$(pwd)/.docker"
@@ -79,10 +79,10 @@ jobs:
           git checkout -q --force FETCH_HEAD
       - name: Build and push Helm chart
         env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
           helm_version="${GITHUB_REF_NAME#v}"
-          helm registry login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+          helm registry login "$REGISTRY" -u "$REGISTRY_USER" -p "$REGISTRY_TOKEN"
           helm package --app-version "$GITHUB_REF_NAME" --version "$helm_version" charts/netbird-operator
           helm push "netbird-operator-${helm_version}.tgz" "$CHART_OCI"

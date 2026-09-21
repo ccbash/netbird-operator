@@ -71,16 +71,16 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Login to Codeberg registry
         env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
           export DOCKER_CONFIG="$(pwd)/.docker"
           mkdir -p "$DOCKER_CONFIG"
-          if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_TOKEN:-}" ]; then
-            echo "::error::REGISTRY_USERNAME and REGISTRY_TOKEN repository secrets must be set"
+          if [ -z "${REGISTRY_USER:-}" ] || [ -z "${REGISTRY_TOKEN:-}" ]; then
+            echo "::error::REGISTRY_USER and REGISTRY_TOKEN repository secrets must be set"
             exit 1
           fi
-          printf '%s' "$REGISTRY_TOKEN" | "$(go env GOPATH)/bin/ko" login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+          printf '%s' "$REGISTRY_TOKEN" | "$(go env GOPATH)/bin/ko" login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
       - name: Build and push image
         run: |
           export DOCKER_CONFIG="$(pwd)/.docker"
@@ -135,13 +135,13 @@ jobs:
         # 0.0.<run_number> so Flux orders it; a HelmRelease pinned to
         # chart: netbird-operator-<branch> + version "0.0.x" tracks that branch.
         env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
           chart_name="netbird-operator-${{ steps.tags.outputs.ref_tag }}"
           chart_version="0.0.${{ github.run_number }}"
           sed -i "s/^name: .*/name: ${chart_name}/" charts/netbird-operator/Chart.yaml
-          helm registry login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+          helm registry login "$REGISTRY" -u "$REGISTRY_USER" -p "$REGISTRY_TOKEN"
           helm package --app-version "${{ steps.tags.outputs.sha_tag }}" --version "${chart_version}" charts/netbird-operator
           helm push "${chart_name}-${chart_version}.tgz" "$CHART_OCI"
           {

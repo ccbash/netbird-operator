@@ -89,5 +89,5 @@ runner that permits privileged job containers (kind creates containers), so it
 lives in [`.forgejo/workflows/e2e.yaml`](.forgejo/workflows/e2e.yaml) and is run
 manually. Publishing needs these repository secrets:
 
-- `REGISTRY_USERNAME` — Codeberg user the token belongs to.
+- `REGISTRY_USER` — Codeberg user the token belongs to.
 - `REGISTRY_TOKEN` — Codeberg access token with the `write:package` scope.
