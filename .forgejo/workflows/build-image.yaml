@@ -37,6 +37,7 @@ jobs:
       # Builder image with podman/buildah preinstalled. The runner must expose a
       # podman socket (or run the job privileged) for the nested build.
       image: quay.io/podman/stable:latest
+      options: --privileged
     steps:
       - name: Install build dependencies
         run: dnf install -y git make golang

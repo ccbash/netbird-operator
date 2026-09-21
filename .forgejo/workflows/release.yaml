@@ -17,6 +17,7 @@ jobs:
     runs-on: docker
     container:
       image: quay.io/podman/stable:latest
+      options: --privileged
     steps:
       - name: Install build dependencies
         run: dnf install -y git make golang
