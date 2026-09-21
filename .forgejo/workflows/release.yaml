@@ -43,9 +43,12 @@ jobs:
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
+          export DOCKER_CONFIG="$(pwd)/.docker"
+          mkdir -p "$DOCKER_CONFIG"
           printf '%s' "$REGISTRY_TOKEN" | "$(go env GOPATH)/bin/ko" login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
       - name: Build and push image
         run: |
+          export DOCKER_CONFIG="$(pwd)/.docker"
           ko build --bare \
             --platform=linux/amd64,linux/arm64 \
             --sbom=none \
