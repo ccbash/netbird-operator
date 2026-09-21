@@ -36,16 +36,14 @@ jobs:
           git checkout -q --force FETCH_HEAD
       - name: Install ko
         run: |
-          go install github.com/google/ko@latest
+          go install github.com/google/ko@v0.19.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Login to Codeberg registry
         env:
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
-          mkdir -p "$HOME/.docker"
-          auth=$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_TOKEN" | base64 | tr -d '\n')
-          printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$REGISTRY" "$auth" > "$HOME/.docker/config.json"
+          printf '%s' "$REGISTRY_TOKEN" | "$(go env GOPATH)/bin/ko" login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
       - name: Build and push image
         run: |
           ko build --bare \
