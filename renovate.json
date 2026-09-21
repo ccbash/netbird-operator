@@ -12,6 +12,14 @@
   ],
   "packageRules": [
     {
+      "description": "Fork pin maintained by hand, Renovate cannot resolve a digest",
+      "matchPackageNames": [
+        "github.com/dexidp/dex",
+        "github.com/netbirdio/dex"
+      ],
+      "enabled": false
+    },
+    {
       "description": "Group Kubernetes ecosystem updates in the root module",
       "matchManagers": [
         "gomod"

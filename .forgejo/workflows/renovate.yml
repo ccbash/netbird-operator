@@ -18,4 +18,5 @@ jobs:
           RENOVATE_ENDPOINT: https://codeberg.org/api/v1
           RENOVATE_REPOSITORIES: ccbash-oss/netbird-operator
           RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          GITHUB_COM_TOKEN: ${{ secrets.GH_TOKEN }}
           LOG_LEVEL: info
