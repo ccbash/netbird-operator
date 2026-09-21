@@ -1,0 +1,21 @@
+name: renovate
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  renovate:
+    runs-on: docker
+    container:
+      image: renovate/renovate:latest
+    steps:
+      - name: Run Renovate
+        run: renovate
+        env:
+          RENOVATE_PLATFORM: forgejo
+          RENOVATE_ENDPOINT: https://codeberg.org/api/v1
+          RENOVATE_REPOSITORIES: ccbash-oss/netbird-operator
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          LOG_LEVEL: info

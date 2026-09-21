@@ -1,0 +1,53 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "prConcurrentLimit": 15,
+  "schedule": [
+    "* * * * 1"
+  ],
+  "labels": [
+    "changelog/dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "Group Kubernetes ecosystem updates in the root module",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "k8s.io/**",
+        "sigs.k8s.io/**"
+      ],
+      "groupName": "k8s"
+    },
+    {
+      "description": "Group e2e module updates and skip changelog",
+      "matchFileNames": [
+        "test/e2e/**"
+      ],
+      "groupName": "gomod-e2e",
+      "addLabels": [
+        "changelog/ignore"
+      ]
+    },
+    {
+      "description": "Group Docker updates",
+      "matchManagers": [
+        "docker"
+      ],
+      "groupName": "docker"
+    },
+    {
+      "description": "Group GitHub Actions updates and skip changelog",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github-actions",
+      "addLabels": [
+        "changelog/ignore"
+      ]
+    }
+  ]
+}
