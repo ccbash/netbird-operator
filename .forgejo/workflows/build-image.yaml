@@ -3,6 +3,9 @@ name: build-image
 # Builds and pushes a multi-arch operator image to the Codeberg package registry
 # on every branch push and on demand, so a fork/dev build can be tested in a
 # cluster without cutting a release (that path is handled by release.yaml).
+#
+# The image is assembled with `ko`, which cross-compiles and pushes the
+# multi-arch manifest directly — no Docker daemon or privileged runner needed.
 on:
   push:
     branches:
@@ -27,20 +30,18 @@ concurrency:
 
 env:
   REGISTRY: codeberg.org
-  IMAGE_REPOSITORY: ccbash-oss/netbird-operator
+  KO_DOCKER_REPO: codeberg.org/ccbash-oss/netbird-operator
+  KO_DEFAULTBASEIMAGE: gcr.io/distroless/static:nonroot
   CHART_OCI: oci://codeberg.org/ccbash-oss/helm-charts
 
 jobs:
   image:
     runs-on: docker
     container:
-      # Builder image with podman/buildah preinstalled. The runner must expose a
-      # podman socket (or run the job privileged) for the nested build.
-      image: quay.io/podman/stable:latest
-      options: --privileged
+      image: golang:1.27-bookworm
+    env:
+      GOTOOLCHAIN: auto
     steps:
-      - name: Install build dependencies
-        run: dnf install -y git make golang
       - name: Checkout
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,11 +53,6 @@ jobs:
           git remote add origin "$url" 2>/dev/null || git remote set-url origin "$url"
           git fetch -q --no-tags --depth 1 origin "$GITHUB_REF"
           git checkout -q --force FETCH_HEAD
-      - name: Login to Codeberg registry
-        env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-        run: podman login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
       - name: Resolve image tags
         id: tags
         run: |
@@ -68,26 +64,31 @@ jobs:
           sha_tag="sha-$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           echo "ref_tag=${ref_tag}" >> "$GITHUB_OUTPUT"
           echo "sha_tag=${sha_tag}" >> "$GITHUB_OUTPUT"
-      - name: Build multi-arch image
+          echo "tags=${sha_tag},${ref_tag}" >> "$GITHUB_OUTPUT"
+      - name: Install ko
         run: |
-          make build-image-multiarch \
-            CONTAINER_ENGINE=podman \
-            IMG_REGISTRY="$REGISTRY" \
-            IMG_REPOSITORY="$IMAGE_REPOSITORY" \
-            IMG_TAG="${{ steps.tags.outputs.sha_tag }}"
-      - name: Push image
+          go install github.com/google/ko@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Login to Codeberg registry
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
-          base="${REGISTRY}/${IMAGE_REPOSITORY}"
-          sha_tag="${{ steps.tags.outputs.sha_tag }}"
-          ref_tag="${{ steps.tags.outputs.ref_tag }}"
-          podman manifest push --all "${base}:${sha_tag}" "docker://${base}:${sha_tag}"
-          podman manifest create "${base}:${ref_tag}" "${base}:${sha_tag}-amd64" "${base}:${sha_tag}-arm64"
-          podman manifest push --all "${base}:${ref_tag}" "docker://${base}:${ref_tag}"
+          mkdir -p "$HOME/.docker"
+          auth=$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_TOKEN" | base64 | tr -d '\n')
+          printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$REGISTRY" "$auth" > "$HOME/.docker/config.json"
+      - name: Build and push image
+        run: |
+          ko build --bare \
+            --platform=linux/amd64,linux/arm64 \
+            --sbom=none \
+            --tags="${{ steps.tags.outputs.tags }}" \
+            ./cmd
           {
             echo "### Pushed image"
             echo '```'
-            echo "${base}:${sha_tag}"
-            echo "${base}:${ref_tag}"
+            echo "${KO_DOCKER_REPO}:${{ steps.tags.outputs.sha_tag }}"
+            echo "${KO_DOCKER_REPO}:${{ steps.tags.outputs.ref_tag }}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

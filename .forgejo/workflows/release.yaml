@@ -2,6 +2,8 @@ name: release
 
 # Tag pushes (v*) publish the operator image and Helm chart. Tagging from a
 # release in the Codeberg UI also creates the tag, so either path triggers this.
+#
+# The image is assembled with `ko` (no Docker daemon / privileged runner needed).
 on:
   push:
     tags:
@@ -9,18 +11,18 @@ on:
 
 env:
   REGISTRY: codeberg.org
-  IMAGE_REPOSITORY: ccbash-oss/netbird-operator
+  KO_DOCKER_REPO: codeberg.org/ccbash-oss/netbird-operator
+  KO_DEFAULTBASEIMAGE: gcr.io/distroless/static:nonroot
   CHART_OCI: oci://codeberg.org/ccbash-oss/helm-charts
 
 jobs:
   image:
     runs-on: docker
     container:
-      image: quay.io/podman/stable:latest
-      options: --privileged
+      image: golang:1.27-bookworm
+    env:
+      GOTOOLCHAIN: auto
     steps:
-      - name: Install build dependencies
-        run: dnf install -y git make golang
       - name: Checkout
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -32,20 +34,25 @@ jobs:
           git remote add origin "$url" 2>/dev/null || git remote set-url origin "$url"
           git fetch -q --no-tags --depth 1 origin "$GITHUB_REF"
           git checkout -q --force FETCH_HEAD
+      - name: Install ko
+        run: |
+          go install github.com/google/ko@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Login to Codeberg registry
         env:
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-        run: podman login "$REGISTRY" -u "$REGISTRY_USERNAME" -p "$REGISTRY_TOKEN"
+        run: |
+          mkdir -p "$HOME/.docker"
+          auth=$(printf '%s:%s' "$REGISTRY_USERNAME" "$REGISTRY_TOKEN" | base64 | tr -d '\n')
+          printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$REGISTRY" "$auth" > "$HOME/.docker/config.json"
       - name: Build and push image
         run: |
-          make build-image-multiarch \
-            CONTAINER_ENGINE=podman \
-            IMG_REGISTRY="$REGISTRY" \
-            IMG_REPOSITORY="$IMAGE_REPOSITORY" \
-            IMG_TAG="$GITHUB_REF_NAME"
-          base="${REGISTRY}/${IMAGE_REPOSITORY}"
-          podman manifest push --all "${base}:${GITHUB_REF_NAME}" "docker://${base}:${GITHUB_REF_NAME}"
+          ko build --bare \
+            --platform=linux/amd64,linux/arm64 \
+            --sbom=none \
+            --tags="$GITHUB_REF_NAME" \
+            ./cmd
 
   chart:
     runs-on: docker
