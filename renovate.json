@@ -10,6 +10,15 @@
   "labels": [
     "changelog/dependencies"
   ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/tests/**",
+    "**/__fixtures__/**"
+  ],
   "customManagers": [
     {
       "customType": "regex",
@@ -69,6 +78,14 @@
       "addLabels": [
         "changelog/ignore"
       ]
+    },
+    {
+      "description": "Keep the NetBird client image pin in step with its Go module",
+      "matchPackageNames": [
+        "github.com/netbirdio/netbird",
+        "ghcr.io/netbirdio/netbird"
+      ],
+      "groupName": "netbird"
     }
   ]
 }
