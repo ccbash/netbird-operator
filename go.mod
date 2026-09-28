@@ -1,6 +1,6 @@
 module github.com/netbirdio/kubernetes-operator
 
-go 1.26.0
+go 1.27
 
 toolchain go1.27.1
 
@@ -20,6 +20,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.25.1
 	sigs.k8s.io/gateway-api v1.6.2
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2
+	sigs.k8s.io/structured-merge-diff/v7 v7.0.0
 )
 
 require (
