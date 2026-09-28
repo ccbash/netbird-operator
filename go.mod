@@ -10,7 +10,7 @@ require (
 	github.com/go-openapi/testify/v2 v2.8.0
 	github.com/netbirdio/netbird v0.77.0
 	github.com/onsi/ginkgo/v2 v2.33.0
-	github.com/onsi/gomega v1.43.1
+	github.com/onsi/gomega v1.44.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/mod v0.41.0
 	k8s.io/api v0.37.0
