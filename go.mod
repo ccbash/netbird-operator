@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.27.1
 
 require (
-	github.com/fluxcd/pkg/runtime v0.113.0
+	github.com/fluxcd/pkg/runtime v0.114.0
 	github.com/go-logr/logr v1.4.4
 	github.com/go-openapi/testify/v2 v2.8.0
 	github.com/netbirdio/netbird v0.77.0
