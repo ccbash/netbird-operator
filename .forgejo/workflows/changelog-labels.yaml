@@ -11,7 +11,7 @@ jobs:
   labels:
     runs-on: docker
     container:
-      image: alpine:3.21
+      image: alpine:3.24
     steps:
       - name: Install jq
         run: apk add --no-cache jq
